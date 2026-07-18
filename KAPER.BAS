@@ -1,6 +1,6 @@
 5 poke 53265,peek(53265) and 239 : rem screen off (DEN bit)
 10 rem created with petmate
-15 DIM MF(63),MD(63):SP=50
+15 DIM MF(63),MD(63):SP=8:SR=5
 20 poke 53280,14
 30 poke 53281,6
 40 poke 53272,21
@@ -17,10 +17,20 @@
 90 SK=0:PRINT CHR$(147);:GOTO 600
 150 GET K$: IF K$<>"" THEN 160
 152 IF TI=T THEN 150
-154 T=TI:GOSUB 5100:GOTO 150
-160 POKE 54276,0:POKE 198,0:PRINT
-170 LOAD "MAIN",8,1
-180 END
+154 T=TI:FOR J=1 TO SR:GOSUB 5100:NEXT:GOTO 150
+160 POKE 54276,0:POKE 53265,PEEK(53265)AND239:POKE 198,0:PRINT
+164 PRINT CHR$(147);
+166 PRINT
+167 PRINT
+165 PRINT "LOAD"CHR$(34)"MAIN"CHR$(34)",8"
+169 PRINT
+170 PRINT
+171 PRINT
+172 PRINT
+173 PRINT "RUN"
+174 PRINT CHR$(19);
+175 POKE 631,13:POKE 632,13:POKE 198,2
+176 END
 600 PRINT '{gry3}{rvs on}{172}{162}{162}{162}{162}{162}{162}{162}{162}{162}{162}{187}{lred}                            {rvs off}';
 602 PRINT '{gry3}{161}     {red}{rvs on}{123}{gry3}{rvs off}    {rvs on}{161}{lred} {gry3}{rvs off}                          {lred}{rvs on} {rvs off}';
 604 PRINT '{gry3}{161} {lblu} {gry3}{rvs on}{169}{127} {188}{rvs off}{187}{lblu}  {gry3} {rvs on}{161}{lred} {gry3}{rvs off}{127}{161}{rvs on} {rvs off} {lblu}   {gry3}        {lblu} {gry3}   {lblu}  {gry3} {lblu}  {gry3} {lblu} {lred}{rvs on} {rvs off}';
@@ -69,7 +79,7 @@
 5140 F=MF(MI): D=MD(MI): MI=MI+1
 5150 TT=INT((D+SP-1)/SP): IF TT<1 THEN TT=1
 5160 IF F=0 THEN POKE 54276,0: MT=TT: MP=0: PH=1: RETURN
-5170 MT=INT((TT*3+3)/4): IF MT<1 THEN MT=1
+5170 MT=INT((TT*3)/4): IF MT<1 THEN MT=1
 5172 MP=TT-MT: IF MP<0 THEN MP=0
 5180 F2=F+F+F+F
 5190 H=INT(F2/256): L=F2-H*256
