@@ -67,7 +67,7 @@ function Launch-Vice {
     Create-Disk
     $autostartArg = '{0}:main' -f $diskImage
     Write-Host "Starting VICE with $autostartArg"
-    & $viceExe -autostart $autostartArg
+    Start-Process -FilePath $viceExe -ArgumentList @('-autostart', $autostartArg) | Out-Null
 }
 
 switch ($Target) {
