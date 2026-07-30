@@ -1,4 +1,12 @@
-#todo
-- Move pescii graphics screens to binary files that can be loaded into screen memory to minimize basic code.
-- WHen ship moves on map, all variables/points are drawn, but this should be split so that only what has changed is updated to speed up drawing.
-- The map has 29 columns in the internal grid so we skip one in the code. We should simply remove this column from the grid instead.
+Implement ship sailing trough harbour
+- Ship hs to be positioned correct on screen at start
+- Press enter keys with a delay compared to dificoulty level to scroll harbour up
+- Detect collisions with other ships or harbour wall. If harbour wall then player dies
+
+Implement harbout buying and selling screen
+
+Implement fighting
+
+Implement shooting
+
+Implement mail (flaskepost) upgrades of rank
