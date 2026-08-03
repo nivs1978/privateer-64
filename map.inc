@@ -1,10 +1,18 @@
 .label src_ptr = $fb
 .label dst_ptr = $fd
+.label len_lo = $f9
+.label len_hi = $fa
+
+// Normalize one-color cells by duplicating the nonzero nibble into the zero nibble.
 
 draw_map:
+        sei
         jsr hide_ship
 
-        // Copy bitmap payload to VIC bitmap area ($6000-$7fff).
+        lda map_border_color
+        sta $d020
+
+        // Copy 8000 bitmap bytes to VIC bitmap RAM while still in text mode.
         lda #<map_bitmap_data
         sta src_ptr
         lda #>map_bitmap_data
@@ -13,34 +21,65 @@ draw_map:
         sta dst_ptr
         lda #>$6000
         sta dst_ptr+1
-        ldx #$20
-        jsr copy_full_pages
+        lda #<$1f40
+        sta len_lo
+        lda #>$1f40
+        sta len_hi
+        jsr copy_len_bytes
 
-        // Copy screen RAM using the original MAP.PRG block layout.
-        // This preserves the source overlap pattern that produces the final 1000 bytes at $4000-$43e7.
-        ldx #0
-copy_screen_pages:
-        lda map_screen_block0,x
-        sta $4000,x
-        lda map_screen_block1,x
-        sta $4100,x
-        lda map_screen_block2,x
-        sta $4200,x
-        lda map_screen_block3,x
-        sta $42e8,x
+        // Verify the copied bitmap matches the source before enabling bitmap mode.
+        lda #<map_bitmap_data
+        sta src_ptr
+        lda #>map_bitmap_data
+        sta src_ptr+1
+        lda #<$6000
+        sta dst_ptr
+        lda #>$6000
+        sta dst_ptr+1
+        lda #<$1f40
+        sta len_lo
+        lda #>$1f40
+        sta len_hi
+        jsr verify_len_bytes
+
+        // Copy 1000 screen color bytes with one-color cell normalization.
+        lda #<map_screen_data
+        sta map_screen_src
+        lda #>map_screen_data
+        sta map_screen_src+1
+        lda #<$4000
+        sta map_screen_dst
+        lda #>$4000
+        sta map_screen_dst+1
+
+        ldx #25
+draw_map_row_loop:
+        lda map_screen_src
+        sta src_ptr
+        lda map_screen_src+1
+        sta src_ptr+1
+        lda map_screen_dst
+        sta dst_ptr
+        lda map_screen_dst+1
+        sta dst_ptr+1
+        jsr copy_screen_row_40
+        lda src_ptr
+        sta map_screen_src
+        lda src_ptr+1
+        sta map_screen_src+1
+        lda dst_ptr
+        sta map_screen_dst
+        lda dst_ptr+1
+        sta map_screen_dst+1
+
         dex
-        bne copy_screen_pages
+        bne draw_map_row_loop
 
-        lda map_border_color
-        sta $d020
-
-        lda $d011
-        and #$df
-        ora #$20
+        // Switch to hires bitmap mode only after the map is fully loaded.
+        lda #$3b
         sta $d011
 
-        lda $d016
-        and #$ef
+        lda #$08
         sta $d016
 
         lda $dd00
@@ -51,52 +90,141 @@ copy_screen_pages:
         lda #$08
         sta $d018
 
-        lda #100
-        sta ship_x
-        sta ship_y
-        lda #0
-        sta ship_x_hi
-
-        lda #$f0
-        sta $43f8
-        lda #$f1
-        sta $43f9
-        lda #$f2
-        sta $43fa
-
-        ldy #0
-copy_map_ship_sprites:
-        lda ship_sprites,y
-        sta $7c00,y
-        iny
-        cpy #192
-        bne copy_map_ship_sprites
-
-        jsr position_ship
-        jsr show_ship
+        jsr hide_ship
+        cli
         rts
 
-copy_full_pages:
-copy_page_loop:
+copy_len_bytes:
+copy_len_loop:
+        lda len_lo
+        ora len_hi
+        beq copy_len_done
+
         ldy #0
-copy_byte_loop:
         lda (src_ptr),y
         sta (dst_ptr),y
-        iny
-        bne copy_byte_loop
 
+        inc src_ptr
+        bne src_ptr_ok
         inc src_ptr+1
+src_ptr_ok:
+        inc dst_ptr
+        bne dst_ptr_ok
         inc dst_ptr+1
-        dex
-        bne copy_page_loop
+dst_ptr_ok:
+
+        lda len_lo
+        bne dec_len_lo
+        dec len_hi
+dec_len_lo:
+        dec len_lo
+        jmp copy_len_loop
+
+copy_len_done:
         rts
 
-map_prg_data:
-        .import source "map_prg_bytes.inc"
+verify_len_bytes:
+verify_len_loop:
+        lda len_lo
+        ora len_hi
+        beq verify_len_done
 
-.label map_border_color = map_prg_data + $0135
-.label map_bitmap_data  = map_prg_data + $0138
-.label map_screen_block0 = map_prg_data + $2078
-.label map_screen_block1 = map_prg_data + $2178
-.label map_screen_block2 = map_prg_data + $2278
-.label map_screen_block3 = map_prg_data + $2360
+        ldy #0
+        lda (src_ptr),y
+        cmp (dst_ptr),y
+        bne verify_len_fail
+
+        inc src_ptr
+        bne verify_src_ok
+        inc src_ptr+1
+verify_src_ok:
+        inc dst_ptr
+        bne verify_dst_ok
+        inc dst_ptr+1
+verify_dst_ok:
+
+        lda len_lo
+        bne verify_dec_lo
+        dec len_hi
+verify_dec_lo:
+        dec len_lo
+        jmp verify_len_loop
+
+verify_len_fail:
+        lda #2
+        sta $d020
+verify_fail_loop:
+        jmp verify_fail_loop
+
+verify_len_done:
+        rts
+
+copy_screen_row_40:
+        ldy #0
+copy_screen_row_40_loop:
+        lda (src_ptr),y
+        sta screen_tmp
+        // Normalize one-color cells: if either nibble is zero, duplicate the nonzero nibble.
+        and #$0f
+        bne copy_screen_row_check_high_zero
+        lda screen_tmp
+        lsr
+        lsr
+        lsr
+        lsr
+        ora screen_tmp
+        sta screen_tmp
+        jmp copy_screen_row_fix_zero_store
+
+copy_screen_row_check_high_zero:
+        lda screen_tmp
+        and #$f0
+        bne copy_screen_row_fix_zero_store
+        lda screen_tmp
+        asl
+        asl
+        asl
+        asl
+        ora screen_tmp
+        sta screen_tmp
+
+copy_screen_row_fix_zero_store:
+        lda screen_tmp
+        sta (dst_ptr),y
+
+copy_screen_row_next:
+        iny
+        cpy #40
+        beq copy_screen_row_40_done
+        jmp copy_screen_row_40_loop
+
+copy_screen_row_40_done:
+
+        clc
+        lda src_ptr
+        adc #$28
+        sta src_ptr
+        bcc copy_row_src_advance_done
+        inc src_ptr+1
+copy_row_src_advance_done:
+
+        clc
+        lda dst_ptr
+        adc #$28
+        sta dst_ptr
+        bcc copy_row_dst_advance_done
+        inc dst_ptr+1
+copy_row_dst_advance_done:
+        rts
+
+map_screen_src: .word 0
+map_screen_dst: .word 0
+screen_tmp: .byte 0
+
+map_art_data:
+        .import source "map_art_bytes.inc"
+
+// map.art layout: 2-byte load address + 8000 bitmap bytes + 1000 screen bytes + trailing metadata
+.label map_bitmap_data  = map_art_data + $0002
+.label map_screen_data  = map_art_data + $1f42
+.label map_border_color = map_art_data + $232a
