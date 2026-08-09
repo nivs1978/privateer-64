@@ -831,7 +831,9 @@ run_cannon_fight_text:
 
 run_cannon_fight_round:
         jsr update_fight_status_values
-        jsr print_newline
+        ldx #15
+        ldy #16
+        jsr set_cursor_xy
         lda #<fight_fire_prompt
         sta src_ptr
         lda #>fight_fire_prompt
@@ -867,28 +869,28 @@ fight_fire_execute:
 run_boarding_fight_text:
         lda #0
         sta battle_return_to_main_choice
-
-boarding_round:
         jsr clear_text_notice_screen
+        jsr draw_fight_status_table
+
+        ldx #0
+        ldy #0
+        jsr set_cursor_xy
         lda #<encounter_prompt_fire_board_1
         sta src_ptr
         lda #>encounter_prompt_fire_board_1
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
+
+        ldx #0
+        ldy #1
+        jsr set_cursor_xy
         lda #<encounter_prompt_fire_board_2
         sta src_ptr
         lda #>encounter_prompt_fire_board_2
         sta src_ptr+1
         jsr print_zero_terminated
 
-        ldx #8
-boarding_round_blank_lines:
-        jsr print_newline
-        dex
-        bne boarding_round_blank_lines
-
-        jsr draw_fight_status_table
+boarding_round:
         jsr apply_boarding_round
         jsr update_fight_status_values
         lda enemy_crew_hi
@@ -897,25 +899,34 @@ boarding_round_blank_lines:
         cmp #20
         bcc boarding_enemy_low
 boarding_continue:
+        ldx #0
+        ldy #8
+        jsr set_cursor_xy
         lda #<boarding_status_line_1
         sta src_ptr
         lda #>boarding_status_line_1
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
+        ldx #0
+        ldy #9
+        jsr set_cursor_xy
         lda #<boarding_status_line_2
         sta src_ptr
         lda #>boarding_status_line_2
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
 
+        ldx #0
+        ldy #11
+        jsr set_cursor_xy
         lda #<boarding_prompt_line_1
         sta src_ptr
         lda #>boarding_prompt_line_1
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
+        ldx #0
+        ldy #12
+        jsr set_cursor_xy
         lda #<boarding_prompt_line_2
         sta src_ptr
         lda #>boarding_prompt_line_2
@@ -1018,12 +1029,14 @@ boarding_enemy_ok:
         rts
 
 handle_enemy_surrender:
+        ldx #0
+        ldy #8
+        jsr set_cursor_xy
         lda #<surrender_line_1
         sta src_ptr
         lda #>surrender_line_1
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
 
         clc
         lda treasury_rigsdaler
@@ -1041,18 +1054,22 @@ handle_enemy_surrender:
         inc grain_sacks+1
 
 surrender_prompt_prize:
+        ldx #0
+        ldy #11
+        jsr set_cursor_xy
         lda #<surrender_line_2
         sta src_ptr
         lda #>surrender_line_2
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
+        ldx #0
+        ldy #12
+        jsr set_cursor_xy
         lda #<surrender_line_3
         sta src_ptr
         lda #>surrender_line_3
         sta src_ptr+1
         jsr print_zero_terminated
-        jsr print_newline
 
 surrender_prize_key:
         jsr read_key_blocking
@@ -1282,46 +1299,51 @@ print_double_newline:
         rts
 
 set_cursor_xy:
-        clc
+        // Callers pass X=column, Y=row.
+        sec
         jsr $fff0
         rts
 
 draw_fight_status_table:
         ldx #0
         ldy #20
-        jsr set_cursor_xy
         lda #<fight_status_border_top
         sta src_ptr
         lda #>fight_status_border_top
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr write_zero_terminated_screen
 
-        ldx #1
+        ldx #0
         ldy #21
-        jsr set_cursor_xy
         lda #<fight_status_row_1
         sta src_ptr
         lda #>fight_status_row_1
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr write_zero_terminated_screen
 
-        ldx #1
+        ldx #0
         ldy #22
-        jsr set_cursor_xy
+        lda #<fight_status_border_middle
+        sta src_ptr
+        lda #>fight_status_border_middle
+        sta src_ptr+1
+        jsr write_zero_terminated_screen
+
+        ldx #0
+        ldy #23
         lda #<fight_status_row_2
         sta src_ptr
         lda #>fight_status_row_2
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr write_zero_terminated_screen
 
         ldx #0
-        ldy #23
-        jsr set_cursor_xy
+        ldy #24
         lda #<fight_status_border_bottom
         sta src_ptr
         lda #>fight_status_border_bottom
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr write_zero_terminated_screen
 
         jsr update_fight_status_values
         rts
@@ -1338,7 +1360,7 @@ update_fight_status_values:
         sta num_print_lo
         lda treasury_rigsdaler+1
         sta num_print_hi
-        ldx #21
+        ldx #20
         ldy #21
         jsr print_fight_word_stat
 
@@ -1347,7 +1369,7 @@ update_fight_status_values:
         sta num_print_lo
         lda ship_cannons+1
         sta num_print_hi
-        ldx #35
+        ldx #33
         ldy #21
         jsr print_fight_word_stat
 
@@ -1357,7 +1379,7 @@ update_fight_status_values:
         lda crew_men+1
         sta num_print_hi
         ldx #7
-        ldy #22
+        ldy #23
         jsr print_fight_word_stat
 
         // POINT
@@ -1365,14 +1387,14 @@ update_fight_status_values:
         sta num_print_lo
         lda player_points+1
         sta num_print_hi
-        ldx #21
-        ldy #22
+        ldx #20
+        ldy #23
         jsr print_fight_word_stat
 
         // REP
         lda ship_repair_points
-        ldx #32
-        ldy #22
+        ldx #31
+        ldy #23
         jsr print_fight_byte_stat
         rts
 
@@ -1383,40 +1405,90 @@ print_fight_byte_stat:
         jmp print_fight_word_stat
 
 print_fight_word_stat:
-        jsr clear_fight_value_field
-        jsr set_cursor_xy
-        lda #' '
-        jsr $ffd2
-        jsr print_word_decimal
-        lda #' '
-        jsr $ffd2
-        rts
-
-clear_fight_value_field:
         stx fight_stat_col
         sty fight_stat_row
-        jsr set_cursor_xy
-        ldx #6
-clear_fight_value_field_loop:
+        jsr set_screen_ptr_xy
+
+        ldy #0
         lda #' '
-        jsr $ffd2
-        dex
+clear_fight_value_field_loop:
+        sta (dst_ptr),y
+        iny
+        cpy #6
         bne clear_fight_value_field_loop
-        ldx fight_stat_col
-        ldy fight_stat_row
+
+        inc dst_ptr
+        bne print_fight_word_stat_ptr_ok
+        inc dst_ptr+1
+print_fight_word_stat_ptr_ok:
+        jsr print_word_decimal
+        rts
+
+set_screen_ptr_xy:
+        lda screen_row_addr_lo,y
+        sta dst_ptr
+        lda screen_row_addr_hi,y
+        sta dst_ptr+1
+        txa
+        clc
+        adc dst_ptr
+        sta dst_ptr
+        bcc set_screen_ptr_xy_done
+        inc dst_ptr+1
+set_screen_ptr_xy_done:
+        rts
+
+write_zero_terminated_screen:
+        jsr set_screen_ptr_xy
+        ldy #0
+write_zero_terminated_screen_loop:
+        lda (src_ptr),y
+        beq write_zero_terminated_screen_done
+        jsr petscii_to_screen_code
+        sta (dst_ptr),y
+        iny
+        bne write_zero_terminated_screen_loop
+write_zero_terminated_screen_done:
+        rts
+
+petscii_to_screen_code:
+        // Uppercase/graphics conversion for direct screen RAM writes.
+        // $40-$5F  -> $00-$1F
+        // $60-$7F  -> $40-$5F
+        // $A0-$BF  -> $60-$7F
+        cmp #$40
+        bcc petscii_to_screen_done
+        cmp #$60
+        bcc petscii_to_screen_sub_64
+        cmp #$80
+        bcc petscii_to_screen_sub_32
+        cmp #$a0
+        bcc petscii_to_screen_done
+        cmp #$c0
+        bcs petscii_to_screen_done
+petscii_to_screen_sub_64:
+        sec
+        sbc #$40
+        jmp petscii_to_screen_done
+petscii_to_screen_sub_32:
+        sec
+        sbc #$20
+petscii_to_screen_done:
         rts
 
 print_word_decimal:
         lda num_print_lo
         ora num_print_hi
         bne print_word_decimal_begin
+        ldy #0
         lda #'0'
-        jsr $ffd2
+        sta (dst_ptr),y
         rts
 
 print_word_decimal_begin:
         lda #0
         sta num_print_started
+        sta num_print_out_index
         ldx #0
 
 print_word_decimal_digit:
@@ -1452,7 +1524,9 @@ print_word_decimal_emit:
         tya
         clc
         adc #'0'
-        jsr $ffd2
+        ldy num_print_out_index
+        sta (dst_ptr),y
+        inc num_print_out_index
         lda #1
         sta num_print_started
 
@@ -1697,6 +1771,7 @@ damage_hi: .byte 0
 num_print_lo: .byte 0
 num_print_hi: .byte 0
 num_print_started: .byte 0
+num_print_out_index: .byte 0
 fight_stat_col: .byte 0
 fight_stat_row: .byte 0
 player_naval_title_index: .byte 1
@@ -1780,23 +1855,45 @@ fight_fire_prompt:      .text "F=FYR. 0=AFBRYD KAMPEN"
                         .byte 0
 fight_status_border_top:
                         .byte 176
-                        .fill 12,99
+                        .fill 12,96
                         .byte 178
-                        .fill 12,99
-                        .byte 174
-                        .fill 12,99
-                        .byte 98,0
-fight_status_border_bottom:
+                        .fill 12,96
+                        .byte 178
+                        .fill 12,96
+                        .byte 174,0
+fight_status_border_middle:
                         .byte 171
-                        .fill 12,123
-                        .byte 179
-                        .fill 12,123
+                        .fill 12,96
+                        .byte 123
+                        .fill 12,96
+                        .byte 123
+                        .fill 12,96
+                        .byte 179,0
+fight_status_border_bottom:
                         .byte 173
-                        .fill 12,123
-                        .byte 177,0
-fight_status_row_1:      .text "TR[K:       RGSDL:      SKYTS::     "
+                        .fill 12,96
+                        .byte 177
+                        .fill 12,96
+                        .byte 177
+                        .fill 12,96
+                        .byte 189,0
+fight_status_row_1:
+                        .byte 98
+                        .text "TR[K:       "
+                        .byte 98
+                        .text "RGSDL:      "
+                        .byte 98
+                        .text "SKYTS:      "
+                        .byte 98
                         .byte 0
-fight_status_row_2:      .text "M[ND:       POINT:      REP:        "
+fight_status_row_2:
+                        .byte 98
+                        .text "M[ND:       "
+                        .byte 98
+                        .text "POINT:      "
+                        .byte 98
+                        .text "REP:        "
+                        .byte 98
                         .byte 0
 boarding_status_line_1: .text "KAMPEN RASER OMBORD P] FJENDEN!"
                         .byte 0
@@ -1969,6 +2066,19 @@ decimal_divisor_lo:
                         .byte <10000,<1000,<100,<10,<1
 decimal_divisor_hi:
                         .byte >10000,>1000,>100,>10,>1
+
+screen_row_addr_lo:
+                        .byte <INTRO_SCREEN_RAM,<(INTRO_SCREEN_RAM+$28),<(INTRO_SCREEN_RAM+$50),<(INTRO_SCREEN_RAM+$78),<(INTRO_SCREEN_RAM+$a0)
+                        .byte <(INTRO_SCREEN_RAM+$c8),<(INTRO_SCREEN_RAM+$f0),<(INTRO_SCREEN_RAM+$118),<(INTRO_SCREEN_RAM+$140),<(INTRO_SCREEN_RAM+$168)
+                        .byte <(INTRO_SCREEN_RAM+$190),<(INTRO_SCREEN_RAM+$1b8),<(INTRO_SCREEN_RAM+$1e0),<(INTRO_SCREEN_RAM+$208),<(INTRO_SCREEN_RAM+$230)
+                        .byte <(INTRO_SCREEN_RAM+$258),<(INTRO_SCREEN_RAM+$280),<(INTRO_SCREEN_RAM+$2a8),<(INTRO_SCREEN_RAM+$2d0),<(INTRO_SCREEN_RAM+$2f8)
+                        .byte <(INTRO_SCREEN_RAM+$320),<(INTRO_SCREEN_RAM+$348),<(INTRO_SCREEN_RAM+$370),<(INTRO_SCREEN_RAM+$398),<(INTRO_SCREEN_RAM+$3c0)
+screen_row_addr_hi:
+                        .byte >INTRO_SCREEN_RAM,>(INTRO_SCREEN_RAM+$28),>(INTRO_SCREEN_RAM+$50),>(INTRO_SCREEN_RAM+$78),>(INTRO_SCREEN_RAM+$a0)
+                        .byte >(INTRO_SCREEN_RAM+$c8),>(INTRO_SCREEN_RAM+$f0),>(INTRO_SCREEN_RAM+$118),>(INTRO_SCREEN_RAM+$140),>(INTRO_SCREEN_RAM+$168)
+                        .byte >(INTRO_SCREEN_RAM+$190),>(INTRO_SCREEN_RAM+$1b8),>(INTRO_SCREEN_RAM+$1e0),>(INTRO_SCREEN_RAM+$208),>(INTRO_SCREEN_RAM+$230)
+                        .byte >(INTRO_SCREEN_RAM+$258),>(INTRO_SCREEN_RAM+$280),>(INTRO_SCREEN_RAM+$2a8),>(INTRO_SCREEN_RAM+$2d0),>(INTRO_SCREEN_RAM+$2f8)
+                        .byte >(INTRO_SCREEN_RAM+$320),>(INTRO_SCREEN_RAM+$348),>(INTRO_SCREEN_RAM+$370),>(INTRO_SCREEN_RAM+$398),>(INTRO_SCREEN_RAM+$3c0)
 
 * = $9000 "MapArt"
 map_art_data:
