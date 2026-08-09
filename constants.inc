@@ -2,6 +2,7 @@
 
 .const VIC_BANK0_SELECT = $03
 .const VIC_BANK1_SELECT = $02
+.const VIC_BANK2_SELECT = $01
 
 .const VIC_D018_MAIN = $15      // screen $0400, charset $1000 (bank 0)
 .const VIC_D018_INTRO = $12     // screen $4400, charset $4800 (bank 1)
@@ -14,7 +15,7 @@
 .const INTRO_CHARSET_RAM = $4800
 
 .const SPRITE_PTR_TAB_BANK0 = $07f8        // screen base $0400 + $03f8
-.const SPRITE_PTR_TAB_BANK1_MAP = $43f8    // screen base $4000 + $03f8
+.const SPRITE_PTR_TAB_BANK1_MAP = $47f8    // screen base $4400 + $03f8
 .const SPRITE_PTR_TAB_BANK1_INTRO = $47f8  // screen base $4400 + $03f8
 
 .const SPRITE_DATA_BANK0 = $3c00

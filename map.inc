@@ -9,6 +9,12 @@ draw_map:
         sei
         jsr hide_ship
 
+        // MapArt spans into the BASIC ROM window; expose RAM there while copying it.
+        lda $01
+        pha
+        and #$fe
+        sta $01
+
         lda map_border_color
         sta $d020
 
@@ -47,9 +53,9 @@ draw_map:
         sta map_screen_src
         lda #>map_screen_data
         sta map_screen_src+1
-        lda #<$4000
+        lda #<$4400
         sta map_screen_dst
-        lda #>$4000
+        lda #>$4400
         sta map_screen_dst+1
 
         ldx #25
@@ -75,6 +81,9 @@ draw_map_row_loop:
         dex
         bne draw_map_row_loop
 
+        pla
+        sta $01
+
         // Switch to hires bitmap mode only after the map is fully loaded.
         lda #$3b
         sta $d011
@@ -84,10 +93,11 @@ draw_map_row_loop:
 
         lda $dd00
         and #$fc
-        ora #$02
+        ora #VIC_BANK1_SELECT
         sta $dd00
 
-        lda #$08
+        // Bitmap at $6000 and screen RAM at $4400 within VIC bank 1.
+        lda #$18
         sta $d018
 
         jsr hide_ship
@@ -241,6 +251,9 @@ init_map_navigation:
         sta ship_repair_points
         lda #0
         sta last_harbour_id
+        lda #1
+        sta player_naval_title_index
+        sta player_noble_title_index
         jsr derive_map_cell_from_ship_position
         jsr position_ship
         rts
@@ -373,24 +386,1098 @@ on_land_collision_done:
         rts
 
 on_random_sea_event:
-        lda $dc05
-        and #$01
-        beq random_event_enemy_ship
-        lda #<random_event_fog_msg
-        sta src_ptr
-        lda #>random_event_fog_msg
-        sta src_ptr+1
-        jmp show_text_message_and_restore_map
+        jsr hide_ship
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
 
-random_event_enemy_ship:
-        lda #<random_event_ship_msg
+        // BASIC 1810 branch: I=1..10, where 1..8 are ships and 9..10 are fog events.
+        jsr random_mod_10
+        clc
+        adc #1
+        cmp #9
+        bcs random_event_fog_branch
+        sta enemy_index
+        jsr run_enemy_encounter_text
+        jmp random_event_done
+
+random_event_fog_branch:
+        jsr run_fog_event_text
+
+random_event_done:
+        jsr draw_map
+        jsr load_ship_sprites
+        jsr sync_ship_to_grid_position
+        jsr show_ship
+        rts
+
+run_enemy_encounter_text:
+        jsr init_enemy_from_index
+
+        lda #<encounter_lookout_msg
         sta src_ptr
-        lda #>random_event_ship_msg
+        lda #>encounter_lookout_msg
         sta src_ptr+1
-        jmp show_text_message_and_restore_map
+        jsr print_zero_terminated
+        jsr print_newline
+
+        lda #<encounter_ship_ahoy_msg
+        sta src_ptr
+        lda #>encounter_ship_ahoy_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+        lda enemy_index
+        cmp #8
+        beq encounter_print_enemy_name
+        lda #<encounter_english_msg
+        sta src_ptr
+        lda #>encounter_english_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+encounter_print_enemy_name:
+        lda enemy_name_ptr_lo
+        sta src_ptr
+        lda enemy_name_ptr_hi
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        lda #<encounter_in_sight_msg
+        sta src_ptr
+        lda #>encounter_in_sight_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_double_newline
+
+        lda #<encounter_title_prefix_msg
+        sta src_ptr
+        lda #>encounter_title_prefix_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_player_naval_title
+        lda #' '
+        jsr $ffd2
+        jsr print_namebuf_zero_terminated
+        lda #','
+        jsr $ffd2
+        jsr print_newline
+
+        lda #<encounter_choose_msg
+        sta src_ptr
+        lda #>encounter_choose_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+encounter_choice_1:
+        jsr print_newline
+        lda #<encounter_prompt_fight_flee
+        sta src_ptr
+        lda #>encounter_prompt_fight_flee
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+encounter_choice_1_key:
+        jsr read_key_blocking
+        cmp #'A'
+        beq encounter_attack_selected
+        cmp #'a'
+        beq encounter_attack_selected
+        cmp #'F'
+        beq encounter_flee_selected
+        cmp #'f'
+        beq encounter_flee_selected
+        jmp encounter_choice_1_key
+
+encounter_flee_selected:
+        rts
+
+encounter_attack_selected:
+        jsr clear_text_notice_screen
+        jsr print_newline
+        lda #<encounter_prompt_fire_board_1
+        sta src_ptr
+        lda #>encounter_prompt_fire_board_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<encounter_prompt_fire_board_2
+        sta src_ptr
+        lda #>encounter_prompt_fire_board_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        lda ship_cannons
+        ora ship_cannons+1
+        bne encounter_choice_2_key
+        jmp encounter_board_selected
+
+encounter_choice_2_key:
+        jsr read_key_blocking
+        cmp #'B'
+        beq encounter_board_selected
+        cmp #'b'
+        beq encounter_board_selected
+        cmp #'S'
+        beq encounter_fire_selected
+        cmp #'s'
+        beq encounter_fire_selected
+        jmp encounter_choice_2_key
+
+encounter_board_selected:
+        jsr run_boarding_fight_text
+        lda battle_return_to_main_choice
+        beq encounter_choice_1
+        rts
+
+encounter_fire_selected:
+        jsr run_cannon_fight_text
+        lda battle_return_to_main_choice
+        beq encounter_choice_1
+        rts
+
+run_fog_event_text:
+        lda #<fog_line_1
+        sta src_ptr
+        lda #>fog_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_line_2
+        sta src_ptr
+        lda #>fog_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_line_3
+        sta src_ptr
+        lda #>fog_line_3
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_line_4
+        sta src_ptr
+        lda #>fog_line_4
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_line_5
+        sta src_ptr
+        lda #>fog_line_5
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_double_newline
+
+        lda #<encounter_title_prefix_msg
+        sta src_ptr
+        lda #>encounter_title_prefix_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_player_naval_title
+        lda #' '
+        jsr $ffd2
+        jsr print_namebuf_zero_terminated
+        lda #','
+        jsr $ffd2
+        jsr print_newline
+
+        lda #<encounter_choose_msg
+        sta src_ptr
+        lda #>encounter_choose_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr print_newline
+
+        lda #<fog_prompt_msg
+        sta src_ptr
+        lda #>fog_prompt_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+fog_prompt_key:
+        jsr read_key_blocking
+        cmp #'J'
+        beq fog_investigate_yes
+        cmp #'j'
+        beq fog_investigate_yes
+        cmp #'N'
+        beq fog_investigate_no
+        cmp #'n'
+        beq fog_investigate_no
+        jmp fog_prompt_key
+
+fog_investigate_no:
+        rts
+
+fog_investigate_yes:
+        jsr random_mod_10
+        cmp #0
+        bne fog_check_1
+        jmp fog_outcome_enemy
+fog_check_1:
+        cmp #1
+        bne fog_check_2
+        jmp fog_outcome_treasure
+fog_check_2:
+        cmp #2
+        bne fog_check_3
+        jmp fog_outcome_jewel
+fog_check_3:
+        cmp #3
+        bne fog_check_4
+        jmp fog_outcome_cannon
+fog_check_4:
+        cmp #4
+        bne fog_check_5
+        jmp fog_outcome_crew
+fog_check_5:
+        cmp #7
+        bne fog_check_6
+        jmp fog_outcome_grain
+fog_check_6:
+        cmp #8
+        bne fog_outcome_default
+        jmp fog_outcome_plague
+fog_outcome_default:
+
+fog_outcome_nothing:
+        jsr clear_text_notice_screen
+        lda #<fog_nothing_line_1
+        sta src_ptr
+        lda #>fog_nothing_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_nothing_line_2
+        sta src_ptr
+        lda #>fog_nothing_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+fog_outcome_enemy:
+        jsr clear_text_notice_screen
+        lda #<fog_enemy_line_1
+        sta src_ptr
+        lda #>fog_enemy_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_enemy_line_2
+        sta src_ptr
+        lda #>fog_enemy_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        jsr random_enemy_roll
+        sta enemy_index
+        jsr run_enemy_encounter_text
+        rts
+
+fog_outcome_treasure:
+        jsr clear_text_notice_screen
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_treasure_line_2
+        sta src_ptr
+        lda #>fog_treasure_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #44
+        clc
+        adc treasury_rigsdaler
+        sta treasury_rigsdaler
+        bcc fog_treasure_no_carry
+        inc treasury_rigsdaler+1
+fog_treasure_no_carry:
+        jsr show_press_any_key
+        rts
+
+fog_outcome_jewel:
+        jsr clear_text_notice_screen
+        inc jewel_count
+        bne fog_outcome_jewel_msg
+        inc jewel_count+1
+fog_outcome_jewel_msg:
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_jewel_line_2
+        sta src_ptr
+        lda #>fog_jewel_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+fog_outcome_cannon:
+        jsr clear_text_notice_screen
+        inc ship_cannons
+        bne fog_outcome_cannon_msg
+        inc ship_cannons+1
+fog_outcome_cannon_msg:
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_cannon_line_2
+        sta src_ptr
+        lda #>fog_cannon_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+fog_outcome_crew:
+        jsr clear_text_notice_screen
+        lda #25
+        clc
+        adc crew_men
+        sta crew_men
+        bcc fog_outcome_crew_msg
+        inc crew_men+1
+fog_outcome_crew_msg:
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_crew_line_2
+        sta src_ptr
+        lda #>fog_crew_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+fog_outcome_grain:
+        jsr clear_text_notice_screen
+        lda #4
+        clc
+        adc grain_sacks
+        sta grain_sacks
+        bcc fog_outcome_grain_msg
+        inc grain_sacks+1
+fog_outcome_grain_msg:
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_grain_line_2
+        sta src_ptr
+        lda #>fog_grain_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+fog_outcome_plague:
+        jsr clear_text_notice_screen
+        jsr apply_plague_to_crew
+        lda #<fog_found_island_msg
+        sta src_ptr
+        lda #>fog_found_island_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda #' '
+        jsr $ffd2
+        lda #<fog_plague_line_1_suffix
+        sta src_ptr
+        lda #>fog_plague_line_1_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_plague_line_2
+        sta src_ptr
+        lda #>fog_plague_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<fog_plague_line_3
+        sta src_ptr
+        lda #>fog_plague_line_3
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
+run_cannon_fight_text:
+        lda #0
+        sta battle_return_to_main_choice
+        jsr draw_fight_status_table
+
+run_cannon_fight_round:
+        jsr update_fight_status_values
+        jsr print_newline
+        lda #<fight_fire_prompt
+        sta src_ptr
+        lda #>fight_fire_prompt
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+fight_fire_prompt_key:
+        jsr read_key_blocking
+        cmp #'F'
+        beq fight_fire_execute
+        cmp #'f'
+        beq fight_fire_execute
+        cmp #'0'
+        beq fight_fire_abort
+        jmp fight_fire_prompt_key
+
+fight_fire_abort:
+        lda #0
+        sta battle_return_to_main_choice
+        rts
+
+fight_fire_execute:
+        jsr apply_cannon_round
+        lda enemy_ship_hp_hi
+        bne run_cannon_fight_round
+        lda enemy_ship_hp_lo
+        bne run_cannon_fight_round
+        jsr handle_enemy_surrender
+        lda #1
+        sta battle_return_to_main_choice
+        rts
+
+run_boarding_fight_text:
+        lda #0
+        sta battle_return_to_main_choice
+
+boarding_round:
+        jsr clear_text_notice_screen
+        lda #<encounter_prompt_fire_board_1
+        sta src_ptr
+        lda #>encounter_prompt_fire_board_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<encounter_prompt_fire_board_2
+        sta src_ptr
+        lda #>encounter_prompt_fire_board_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        ldx #8
+boarding_round_blank_lines:
+        jsr print_newline
+        dex
+        bne boarding_round_blank_lines
+
+        jsr draw_fight_status_table
+        jsr apply_boarding_round
+        jsr update_fight_status_values
+        lda enemy_crew_hi
+        bne boarding_continue
+        lda enemy_crew_lo
+        cmp #20
+        bcc boarding_enemy_low
+boarding_continue:
+        lda #<boarding_status_line_1
+        sta src_ptr
+        lda #>boarding_status_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<boarding_status_line_2
+        sta src_ptr
+        lda #>boarding_status_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+        lda #<boarding_prompt_line_1
+        sta src_ptr
+        lda #>boarding_prompt_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<boarding_prompt_line_2
+        sta src_ptr
+        lda #>boarding_prompt_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+boarding_prompt_key:
+        jsr read_key_blocking
+        cmp #'K'
+        beq boarding_round
+        cmp #'k'
+        beq boarding_round
+        cmp #'T'
+        beq boarding_back_to_ship
+        cmp #'t'
+        beq boarding_back_to_ship
+        jmp boarding_prompt_key
+
+boarding_back_to_ship:
+        lda #0
+        sta battle_return_to_main_choice
+        rts
+
+boarding_enemy_low:
+        jsr handle_enemy_surrender
+        lda #1
+        sta battle_return_to_main_choice
+        rts
+
+apply_cannon_round:
+        jsr random_mod_16
+        clc
+        adc #8
+        sta damage_lo
+        lda #0
+        sta damage_hi
+
+        sec
+        lda enemy_ship_hp_lo
+        sbc damage_lo
+        sta enemy_ship_hp_lo
+        lda enemy_ship_hp_hi
+        sbc damage_hi
+        bcs cannon_enemy_hp_ok
+        lda #0
+        sta enemy_ship_hp_lo
+        sta enemy_ship_hp_hi
+cannon_enemy_hp_ok:
+
+        jsr random_mod_8
+        clc
+        adc #1
+        cmp ship_repair_points
+        bcc cannon_apply_repair_damage
+        lda #0
+        sta ship_repair_points
+        rts
+cannon_apply_repair_damage:
+        sta damage_lo
+        sec
+        lda ship_repair_points
+        sbc damage_lo
+        sta ship_repair_points
+        rts
+
+apply_boarding_round:
+        jsr random_mod_8
+        clc
+        adc #2
+        sta damage_lo
+        lda #0
+        sta damage_hi
+
+        sec
+        lda crew_men
+        sbc damage_lo
+        sta crew_men
+        lda crew_men+1
+        sbc damage_hi
+        sta crew_men+1
+
+        jsr random_mod_16
+        clc
+        adc #7
+        sta damage_lo
+        lda #0
+        sta damage_hi
+
+        sec
+        lda enemy_crew_lo
+        sbc damage_lo
+        sta enemy_crew_lo
+        lda enemy_crew_hi
+        sbc damage_hi
+        bcs boarding_enemy_ok
+        lda #0
+        sta enemy_crew_lo
+        sta enemy_crew_hi
+boarding_enemy_ok:
+        rts
+
+handle_enemy_surrender:
+        lda #<surrender_line_1
+        sta src_ptr
+        lda #>surrender_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+        clc
+        lda treasury_rigsdaler
+        adc enemy_rgsd_lo
+        sta treasury_rigsdaler
+        lda treasury_rigsdaler+1
+        adc enemy_rgsd_hi
+        sta treasury_rigsdaler+1
+
+        clc
+        lda grain_sacks
+        adc enemy_grain
+        sta grain_sacks
+        bcc surrender_prompt_prize
+        inc grain_sacks+1
+
+surrender_prompt_prize:
+        lda #<surrender_line_2
+        sta src_ptr
+        lda #>surrender_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<surrender_line_3
+        sta src_ptr
+        lda #>surrender_line_3
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+surrender_prize_key:
+        jsr read_key_blocking
+        cmp #'S'
+        beq surrender_sink
+        cmp #'s'
+        beq surrender_sink
+        cmp #'P'
+        beq surrender_prize
+        cmp #'p'
+        beq surrender_prize
+        jmp surrender_prize_key
+
+surrender_sink:
+        clc
+        lda crew_men
+        adc enemy_crew_lo
+        sta crew_men
+        lda crew_men+1
+        adc enemy_crew_hi
+        sta crew_men+1
+        rts
+
+surrender_prize:
+        lda enemy_crew_hi
+        bne surrender_prize_subtract_10
+        lda enemy_crew_lo
+        lsr
+        clc
+        adc #5
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        jmp surrender_prize_apply
+surrender_prize_subtract_10:
+        lda #10
+        sta damage_lo
+        lda #0
+        sta damage_hi
+
+surrender_prize_apply:
+        sec
+        lda crew_men
+        sbc damage_lo
+        sta crew_men
+        lda crew_men+1
+        sbc damage_hi
+        sta crew_men+1
+        rts
+
+init_enemy_from_roll:
+        jsr random_enemy_roll
+        sta enemy_index
+
+init_enemy_from_index:
+        sec
+        sbc #1
+        tax
+
+        lda enemy_name_ptr_table_lo,x
+        sta enemy_name_ptr_lo
+        lda enemy_name_ptr_table_hi,x
+        sta enemy_name_ptr_hi
+
+        lda enemy_cannons_table,x
+        sta enemy_cannons_lo
+        lda #0
+        sta enemy_cannons_hi
+
+        lda enemy_crew_table_lo,x
+        sta enemy_crew_lo
+        lda enemy_crew_table_hi,x
+        sta enemy_crew_hi
+
+        lda enemy_rgsd_table_lo,x
+        sta enemy_rgsd_lo
+        lda enemy_rgsd_table_hi,x
+        sta enemy_rgsd_hi
+
+        lda enemy_grain_table,x
+        sta enemy_grain
+
+        jsr random_mod_64
+        clc
+        adc #100
+        sta enemy_ship_hp_lo
+        lda #0
+        sta enemy_ship_hp_hi
+        rts
+
+random_enemy_roll:
+        jsr random_mod_8
+        clc
+        adc #1
+        rts
+
+random_mod_10:
+        lda $dc04
+        and #$0f
+        cmp #10
+        bcc random_mod_10_done
+        sec
+        sbc #10
+random_mod_10_done:
+        rts
+
+random_mod_16:
+        lda $dc04
+        and #$0f
+        rts
+
+random_mod_8:
+        lda $dc05
+        and #$07
+        rts
+
+random_mod_64:
+        lda $dc04
+        and #$3f
+        rts
+
+clear_text_notice_screen:
+        lda #$93
+        jsr $ffd2
+        lda #$05
+        jsr $ffd2
+        rts
+
+print_player_naval_title:
+        lda player_naval_title_index
+        sec
+        sbc #1
+        tax
+        lda naval_title_ptr_lo,x
+        sta src_ptr
+        lda naval_title_ptr_hi,x
+        sta src_ptr+1
+        jmp print_zero_terminated
+
+print_player_noble_title:
+        lda player_noble_title_index
+        sec
+        sbc #1
+        tax
+        lda noble_title_ptr_lo,x
+        sta src_ptr
+        lda noble_title_ptr_hi,x
+        sta src_ptr+1
+        jmp print_zero_terminated
+
+print_namebuf_zero_terminated:
+        ldy #0
+print_namebuf_loop:
+        lda namebuf,y
+        beq print_namebuf_done
+        jsr $ffd2
+        iny
+        bne print_namebuf_loop
+print_namebuf_done:
+        rts
+
+apply_plague_to_crew:
+        // BASIC-like outcome: roughly one third of crew is lost.
+        lda crew_men
+        sta crew_work_lo
+        lda crew_men+1
+        sta crew_work_hi
+        lda #0
+        sta crew_loss_lo
+        sta crew_loss_hi
+
+crew_loss_loop:
+        lda crew_work_hi
+        bne crew_loss_subtract
+        lda crew_work_lo
+        cmp #3
+        bcc crew_loss_done
+crew_loss_subtract:
+        sec
+        lda crew_work_lo
+        sbc #3
+        sta crew_work_lo
+        lda crew_work_hi
+        sbc #0
+        sta crew_work_hi
+
+        inc crew_loss_lo
+        bne crew_loss_loop
+        inc crew_loss_hi
+        jmp crew_loss_loop
+
+crew_loss_done:
+        sec
+        lda crew_men
+        sbc crew_loss_lo
+        sta crew_men
+        lda crew_men+1
+        sbc crew_loss_hi
+        sta crew_men+1
+        rts
+
+show_press_any_key:
+        lda #<press_any_key_msg
+        sta src_ptr
+        lda #>press_any_key_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+show_press_any_key_wait:
+        jsr $ffe4
+        beq show_press_any_key_wait
+        rts
+
+read_key_blocking:
+        jsr $ffe4
+        beq read_key_blocking
+        rts
+
+print_newline:
+        lda #13
+        jsr $ffd2
+        rts
+
+print_double_newline:
+        jsr print_newline
+        jsr print_newline
+        rts
+
+set_cursor_xy:
+        clc
+        jsr $fff0
+        rts
+
+draw_fight_status_table:
+        ldx #0
+        ldy #20
+        jsr set_cursor_xy
+        lda #<fight_status_border_top
+        sta src_ptr
+        lda #>fight_status_border_top
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        ldx #1
+        ldy #21
+        jsr set_cursor_xy
+        lda #<fight_status_row_1
+        sta src_ptr
+        lda #>fight_status_row_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        ldx #1
+        ldy #22
+        jsr set_cursor_xy
+        lda #<fight_status_row_2
+        sta src_ptr
+        lda #>fight_status_row_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        ldx #0
+        ldy #23
+        jsr set_cursor_xy
+        lda #<fight_status_border_bottom
+        sta src_ptr
+        lda #>fight_status_border_bottom
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        jsr update_fight_status_values
+        rts
+
+update_fight_status_values:
+        // TR[ K
+        ldx #7
+        ldy #21
+        lda voyage_turn_counter
+        jsr print_fight_byte_stat
+
+        // RGSDL
+        lda treasury_rigsdaler
+        sta num_print_lo
+        lda treasury_rigsdaler+1
+        sta num_print_hi
+        ldx #21
+        ldy #21
+        jsr print_fight_word_stat
+
+        // SKYTS
+        lda ship_cannons
+        sta num_print_lo
+        lda ship_cannons+1
+        sta num_print_hi
+        ldx #35
+        ldy #21
+        jsr print_fight_word_stat
+
+        // M[ND
+        lda crew_men
+        sta num_print_lo
+        lda crew_men+1
+        sta num_print_hi
+        ldx #7
+        ldy #22
+        jsr print_fight_word_stat
+
+        // POINT
+        lda player_points
+        sta num_print_lo
+        lda player_points+1
+        sta num_print_hi
+        ldx #21
+        ldy #22
+        jsr print_fight_word_stat
+
+        // REP
+        lda ship_repair_points
+        ldx #32
+        ldy #22
+        jsr print_fight_byte_stat
+        rts
+
+print_fight_byte_stat:
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jmp print_fight_word_stat
+
+print_fight_word_stat:
+        jsr clear_fight_value_field
+        jsr set_cursor_xy
+        lda #' '
+        jsr $ffd2
+        jsr print_word_decimal
+        lda #' '
+        jsr $ffd2
+        rts
+
+clear_fight_value_field:
+        stx fight_stat_col
+        sty fight_stat_row
+        jsr set_cursor_xy
+        ldx #6
+clear_fight_value_field_loop:
+        lda #' '
+        jsr $ffd2
+        dex
+        bne clear_fight_value_field_loop
+        ldx fight_stat_col
+        ldy fight_stat_row
+        rts
+
+print_word_decimal:
+        lda num_print_lo
+        ora num_print_hi
+        bne print_word_decimal_begin
+        lda #'0'
+        jsr $ffd2
+        rts
+
+print_word_decimal_begin:
+        lda #0
+        sta num_print_started
+        ldx #0
+
+print_word_decimal_digit:
+        ldy #0
+print_word_decimal_subtract_check:
+        lda num_print_hi
+        cmp decimal_divisor_hi,x
+        bcc print_word_decimal_digit_ready
+        bne print_word_decimal_subtract
+        lda num_print_lo
+        cmp decimal_divisor_lo,x
+        bcc print_word_decimal_digit_ready
+print_word_decimal_subtract:
+        sec
+        lda num_print_lo
+        sbc decimal_divisor_lo,x
+        sta num_print_lo
+        lda num_print_hi
+        sbc decimal_divisor_hi,x
+        sta num_print_hi
+        iny
+        bne print_word_decimal_subtract_check
+
+print_word_decimal_digit_ready:
+        tya
+        bne print_word_decimal_emit
+        lda num_print_started
+        bne print_word_decimal_emit
+        cpx #4
+        bne print_word_decimal_next
+
+print_word_decimal_emit:
+        tya
+        clc
+        adc #'0'
+        jsr $ffd2
+        lda #1
+        sta num_print_started
+
+print_word_decimal_next:
+        inx
+        cpx #5
+        bne print_word_decimal_digit
+        rts
 
 on_harbour_entered:
         sta last_harbour_id
+        jmp show_text_message_and_restore_map
+
+show_text_message_and_restore_map:
+        jsr hide_ship
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
+
+        lda #<harbour_entry_prefix_msg
+        sta src_ptr
+        lda #>harbour_entry_prefix_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+
+        lda last_harbour_id
         sec
         sbc #2
         tax
@@ -398,26 +1485,9 @@ on_harbour_entered:
         sta src_ptr
         lda map_harbour_name_ptr_hi,x
         sta src_ptr+1
-        jmp show_text_message_and_restore_map
-
-show_text_message_and_restore_map:
-        jsr hide_ship
-        jsr restore_main_vic_bank
-
-        // Ensure text mode while showing event/harbour notices.
-        lda $d011
-        and #$df
-        sta $d011
-        lda $d016
-        and #$ef
-        sta $d016
-
-        lda #$93
-        jsr $ffd2
-        lda #$05
-        jsr $ffd2
-
         jsr print_zero_terminated
+        lda #'.'
+        jsr $ffd2
         lda #13
         jsr $ffd2
         lda #13
@@ -434,9 +1504,24 @@ wait_message_key:
         beq wait_message_key
 
         jsr draw_map
-        jsr set_sprite_pointers_map
+        jsr load_ship_sprites
         jsr sync_ship_to_grid_position
         jsr show_ship
+        rts
+
+prepare_text_notice_screen:
+        // Ensure text mode while showing event/harbour notices.
+        lda $d011
+        and #$df
+        sta $d011
+        lda $d016
+        and #$ef
+        sta $d016
+
+        lda #$93
+        jsr $ffd2
+        lda #$05
+        jsr $ffd2
         rts
 
 print_zero_terminated:
@@ -590,6 +1675,32 @@ map_query_byte_index: .byte 0
 current_map_cell_type: .byte 0
 last_harbour_id: .byte 0
 ship_collision_counter: .byte 0
+crew_work_lo: .byte 0
+crew_work_hi: .byte 0
+crew_loss_lo: .byte 0
+crew_loss_hi: .byte 0
+enemy_index: .byte 1
+enemy_name_ptr_lo: .byte 0
+enemy_name_ptr_hi: .byte 0
+enemy_cannons_lo: .byte 0
+enemy_cannons_hi: .byte 0
+enemy_crew_lo: .byte 0
+enemy_crew_hi: .byte 0
+enemy_rgsd_lo: .byte 0
+enemy_rgsd_hi: .byte 0
+enemy_grain: .byte 0
+enemy_ship_hp_lo: .byte 0
+enemy_ship_hp_hi: .byte 0
+battle_return_to_main_choice: .byte 0
+damage_lo: .byte 0
+damage_hi: .byte 0
+num_print_lo: .byte 0
+num_print_hi: .byte 0
+num_print_started: .byte 0
+fight_stat_col: .byte 0
+fight_stat_row: .byte 0
+player_naval_title_index: .byte 1
+player_noble_title_index: .byte 1
 
 // Temporary state for pixel->cell conversion.
 map_rel_lo: .byte 0
@@ -641,27 +1752,225 @@ map_land_row_masks:
         .byte $00,$04,$F0,$01
         .byte $00,$00,$F0,$00
 
-press_any_key_msg:      .text "TRYK EN TAST"
+press_any_key_msg:      .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
                         .byte 0
-random_event_fog_msg:   .text "UDKIGGEN MELDER: T]GEBANKE I SIGTE."
+encounter_lookout_msg:  .text "UDKIGGEN MELDER:"
                         .byte 0
-random_event_ship_msg:  .text "UDKIGGEN MELDER: FJENDTLIGT SKIB I SIGTE."
+encounter_ship_ahoy_msg:.text "SHIP OH\J!"
                         .byte 0
-harbour_copenhagen_msg: .text "DU ER P] VEJ IND I HAVNEN I K[BENHAVN."
+encounter_english_msg:  .text "ENGELSK "
                         .byte 0
-harbour_helsingor_msg:  .text "DU ER P] VEJ IND I HAVNEN I HELSING\R."
+encounter_in_sight_msg: .text " I SIGTE"
                         .byte 0
-harbour_hundested_msg:  .text "DU ER P] VEJ IND I HAVNEN I HUNDESTED."
+encounter_title_prefix_msg:
+                        .text "N] "
                         .byte 0
-harbour_grenaa_msg:     .text "DU ER P] VEJ IND I HAVNEN I GREN]."
+encounter_choose_msg:   .text "NU M] DU V[LGE:"
                         .byte 0
-harbour_ebeltoft_msg:   .text "DU ER P] VEJ IND I HAVNEN I EBELTOFT."
+encounter_prompt_fight_flee:
+                        .text "VIL DU ANGRIBE (A) ELLER FLYGTE (F)?"
                         .byte 0
-harbour_kalundborg_msg: .text "DU ER P] VEJ IND I HAVNEN I KALUNDBORG."
+encounter_prompt_fire_board_1:
+                        .text "VIL DU BORDE HENDE (B) ELLER"
                         .byte 0
-harbour_molle_msg:      .text "DU ER P] VEJ IND I HAVNEN I M\LLE."
+encounter_prompt_fire_board_2:
+                        .text "VIL DU SKYDE (S) P] HENDE?"
+                        .byte 0
+fight_fire_prompt:      .text "F=FYR. 0=AFBRYD KAMPEN"
+                        .byte 0
+fight_status_border_top:
+                        .byte 176
+                        .fill 12,99
+                        .byte 178
+                        .fill 12,99
+                        .byte 174
+                        .fill 12,99
+                        .byte 98,0
+fight_status_border_bottom:
+                        .byte 171
+                        .fill 12,123
+                        .byte 179
+                        .fill 12,123
+                        .byte 173
+                        .fill 12,123
+                        .byte 177,0
+fight_status_row_1:      .text "TR[K:       RGSDL:      SKYTS::     "
+                        .byte 0
+fight_status_row_2:      .text "M[ND:       POINT:      REP:        "
+                        .byte 0
+boarding_status_line_1: .text "KAMPEN RASER OMBORD P] FJENDEN!"
+                        .byte 0
+boarding_status_line_2: .text "DU HAR MISTET TAPRE M[ND."
+                        .byte 0
+boarding_prompt_line_1: .text "VIL DU K[MPE VIDERE (K)"
+                        .byte 0
+boarding_prompt_line_2: .text "ELLER VENDE TILBAGE TIL DIT SKIB (T)?"
+                        .byte 0
+surrender_line_1:       .text "DE OVERGIVER SIG!!"
+                        .byte 0
+surrender_line_2:       .text "VIL DU S[NKE DET, (S)"
+                        .byte 0
+surrender_line_3:       .text "ELLER TAGE DET SOM PRISE (P) ?"
                         .byte 0
 
+fog_line_1:             .text "UDKIGGEN MELDER:"
+                        .byte 0
+fog_line_2:             .text "OH]J!"
+                        .byte 0
+fog_line_3:             .text "DER ER EN UNDERLIG T]GEBANKE 2 S\MIL"
+                        .byte 0
+fog_line_4:             .text "TIL STYRBORD,"
+                        .byte 0
+fog_line_5:             .text "DET SER UD TIL, AT DER ER NOGET INDE I DEN."
+                        .byte 0
+fog_prompt_msg:         .text "VIL DU UNDERS\GE DET (J/N)?"
+                        .byte 0
+fog_enemy_line_1:       .text "DER DUKKER AF DISEN"
+                        .byte 0
+fog_enemy_line_2:       .text "ET V[MMELIGT SKIB!"
+                        .byte 0
+fog_found_island_msg:   .text "DU FINDER EN \DE \"
+                        .byte 0
+fog_treasure_line_2:    .text "MED EN SKATTEKISTE MED RIGSDALER!"
+                        .byte 0
+fog_jewel_line_2:       .text "MED JUVELER!"
+                        .byte 0
+fog_cannon_line_2:      .text "HVOR DER LIGGER EN KANON!"
+                        .byte 0
+fog_crew_line_2:        .text "MED SKIBBRUDNE, SOM TAGER HYRE!"
+                        .byte 0
+fog_nothing_line_1:     .text "N\H!"
+                        .byte 0
+fog_nothing_line_2:     .text "DER VAR ALLIGEVEL IKKE NOGET."
+                        .byte 0
+fog_grain_line_2:       .text "MED S[KKE KORN!"
+                        .byte 0
+fog_plague_line_1_suffix:
+                        .text "MED EN PESTSYG SKIBBRUDEN!"
+                        .byte 0
+fog_plague_line_2:      .text "HAN SMITTER DIN BES[TNING, OG EN TREDIEDEL D\R!"
+                        .byte 0
+fog_plague_line_3:      .text "RESTEN ER IKKE ALT FOR BEGEJSTREDE FOR DIT LEDERSKAB!"
+                        .byte 0
+
+naval_title_ptr_lo:
+                        .byte <naval_title_1
+                        .byte <naval_title_2
+                        .byte <naval_title_3
+                        .byte <naval_title_4
+                        .byte <naval_title_5
+naval_title_ptr_hi:
+                        .byte >naval_title_1
+                        .byte >naval_title_2
+                        .byte >naval_title_3
+                        .byte >naval_title_4
+                        .byte >naval_title_5
+noble_title_ptr_lo:
+                        .byte <noble_title_1
+                        .byte <noble_title_2
+                        .byte <noble_title_3
+                        .byte <noble_title_4
+                        .byte <noble_title_5
+noble_title_ptr_hi:
+                        .byte >noble_title_1
+                        .byte >noble_title_2
+                        .byte >noble_title_3
+                        .byte >noble_title_4
+                        .byte >noble_title_5
+
+naval_title_1:          .text "SKIBSF\RER"
+                        .byte 0
+naval_title_2:          .text "KAPTAJN"
+                        .byte 0
+naval_title_3:          .text "KOMMAND\RKAPTAJN"
+                        .byte 0
+naval_title_4:          .text "KOMMAND\R"
+                        .byte 0
+naval_title_5:          .text "ADMIRAL"
+                        .byte 0
+
+noble_title_1:          .text "BORGER "
+                        .byte 0
+noble_title_2:          .text "BARON "
+                        .byte 0
+noble_title_3:          .text "GREV "
+                        .byte 0
+noble_title_4:          .text "KAMMERHERRE "
+                        .byte 0
+noble_title_5:          .text "KRONPRINS "
+                        .byte 0
+
+enemy_name_ptr_table_lo:
+                        .byte <enemy_name_1
+                        .byte <enemy_name_2
+                        .byte <enemy_name_3
+                        .byte <enemy_name_4
+                        .byte <enemy_name_5
+                        .byte <enemy_name_6
+                        .byte <enemy_name_7
+                        .byte <enemy_name_8
+enemy_name_ptr_table_hi:
+                        .byte >enemy_name_1
+                        .byte >enemy_name_2
+                        .byte >enemy_name_3
+                        .byte >enemy_name_4
+                        .byte >enemy_name_5
+                        .byte >enemy_name_6
+                        .byte >enemy_name_7
+                        .byte >enemy_name_8
+enemy_cannons_table:
+                        .byte 5,10,2,15,6,1,50,70
+enemy_crew_table_lo:
+                        .byte <80,<480,<40,<140,<50,<10,<140,<200
+enemy_crew_table_hi:
+                        .byte >80,>480,>40,>140,>50,>10,>140,>200
+enemy_rgsd_table_lo:
+                        .byte <150,<600,<150,<450,<200,<30,<900,<1500
+enemy_rgsd_table_hi:
+                        .byte >150,>600,>150,>450,>200,>30,>900,>1500
+enemy_grain_table:
+                        .byte 30,15,4,5,4,1,20,12
+
+enemy_name_1:           .text "HANDELSMAND"
+                        .byte 0
+enemy_name_2:           .text "TROPPETRANSPORT"
+                        .byte 0
+enemy_name_3:           .text "KANONB]D"
+                        .byte 0
+enemy_name_4:           .text "GALEASE"
+                        .byte 0
+enemy_name_5:           .text "BRIG"
+                        .byte 0
+enemy_name_6:           .text "SKONNERT"
+                        .byte 0
+enemy_name_7:           .text "ORLOGSMAND"
+                        .byte 0
+enemy_name_8:           .text "S\R\VERSKIB"
+                        .byte 0
+harbour_copenhagen_msg: .text "K\BENHAVN"
+                        .byte 0
+harbour_helsingor_msg:  .text "HELSING\R"
+                        .byte 0
+harbour_hundested_msg:  .text "HUNDESTED"
+                        .byte 0
+harbour_grenaa_msg:     .text "GREN]"
+                        .byte 0
+harbour_ebeltoft_msg:   .text "EBELTOFT"
+                        .byte 0
+harbour_kalundborg_msg: .text "KALUNDBORG"
+                        .byte 0
+harbour_molle_msg:      .text "M\LLE"
+                        .byte 0
+harbour_entry_prefix_msg:
+                        .text "DU ER P] VEJ IND I HAVNEN I "
+                        .byte 0
+
+decimal_divisor_lo:
+                        .byte <10000,<1000,<100,<10,<1
+decimal_divisor_hi:
+                        .byte >10000,>1000,>100,>10,>1
+
+* = $9000 "MapArt"
 map_art_data:
         .import source "map_art_bytes.inc"
 

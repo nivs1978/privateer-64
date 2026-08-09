@@ -101,7 +101,7 @@ defloop:lda kaperstr,x
 nameok: lda #13
         jsr $ffd2
         jsr draw_map
-        jsr set_sprite_pointers_map
+        jsr load_ship_sprites
         jsr init_map_navigation
         jsr show_ship
         jsr game_loop
@@ -206,6 +206,8 @@ ship_repair_points: .byte 200
 treasury_rigsdaler: .word 600
 grain_sacks:        .word 30
 ship_cannons:       .word 20
+jewel_count:        .word 0
+player_points:      .word 0
 voyage_turn_counter:.byte 0
 
 char_ship:   .byte 36,36,36,36,36,255,127,62
