@@ -502,11 +502,17 @@ encounter_attack_selected:
         sta src_ptr+1
         jsr print_zero_terminated
         jsr print_newline
+        jsr print_newline
         lda #<encounter_prompt_fire_board_2
         sta src_ptr
         lda #>encounter_prompt_fire_board_2
         sta src_ptr+1
         jsr print_zero_terminated
+        jsr print_newline
+        jsr print_newline
+        jsr print_newline
+        jsr print_newline
+        jsr print_newline
 
         lda ship_cannons
         ora ship_cannons+1
@@ -528,13 +534,17 @@ encounter_choice_2_key:
 encounter_board_selected:
         jsr run_boarding_fight_text
         lda battle_return_to_main_choice
-        beq encounter_choice_1
+        bne encounter_board_done
+        jmp encounter_choice_1
+encounter_board_done:
         rts
 
 encounter_fire_selected:
         jsr run_cannon_fight_text
         lda battle_return_to_main_choice
-        beq encounter_choice_1
+        bne encounter_fire_done
+        jmp encounter_choice_1
+encounter_fire_done:
         rts
 
 run_fog_event_text:
@@ -613,31 +623,27 @@ fog_investigate_no:
 
 fog_investigate_yes:
         jsr random_mod_10
-        cmp #0
-        bne fog_check_1
-        jmp fog_outcome_enemy
-fog_check_1:
-        cmp #1
-        bne fog_check_2
-        jmp fog_outcome_treasure
-fog_check_2:
         cmp #2
-        bne fog_check_3
-        jmp fog_outcome_jewel
-fog_check_3:
+        bcc fog_outcome_enemy
+        beq fog_outcome_treasure
+fog_check_1:
         cmp #3
-        bne fog_check_4
-        jmp fog_outcome_cannon
-fog_check_4:
+        bne fog_check_2
+        jmp fog_outcome_jewel
+fog_check_2:
         cmp #4
-        bne fog_check_5
+        bne fog_check_3
+        jmp fog_outcome_cannon
+fog_check_3:
+        cmp #5
+        bne fog_check_4
         jmp fog_outcome_crew
-fog_check_5:
-        cmp #7
-        bne fog_check_6
-        jmp fog_outcome_grain
-fog_check_6:
+fog_check_4:
         cmp #8
+        bne fog_check_5
+        jmp fog_outcome_grain
+fog_check_5:
+        cmp #9
         bne fog_outcome_default
         jmp fog_outcome_plague
 fog_outcome_default:
@@ -674,6 +680,7 @@ fog_outcome_enemy:
         jsr print_zero_terminated
         jsr print_newline
         jsr show_press_any_key
+        jsr print_newline
         jsr random_enemy_roll
         sta enemy_index
         jsr run_enemy_encounter_text
@@ -693,21 +700,51 @@ fog_outcome_treasure:
         sta src_ptr+1
         jsr print_zero_terminated
         jsr print_newline
-        lda #44
+        lda #<600
+        sta damage_lo
+        lda #>600
+        sta damage_hi
+        lda #<fog_treasure_line_3
+        sta src_ptr
+        lda #>fog_treasure_line_3
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda damage_lo
+        sta num_print_lo
+        lda damage_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<fog_treasure_line_4
+        sta src_ptr
+        lda #>fog_treasure_line_4
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda damage_lo
         clc
         adc treasury_rigsdaler
         sta treasury_rigsdaler
-        bcc fog_treasure_no_carry
-        inc treasury_rigsdaler+1
-fog_treasure_no_carry:
+        lda damage_hi
+        adc treasury_rigsdaler+1
+        sta treasury_rigsdaler+1
         jsr show_press_any_key
         rts
 
 fog_outcome_jewel:
         jsr clear_text_notice_screen
-        inc jewel_count
-        bne fog_outcome_jewel_msg
-        inc jewel_count+1
+        jsr random_mod_6
+        clc
+        adc #2
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        lda damage_lo
+        clc
+        adc jewel_count
+        sta jewel_count
+        lda damage_hi
+        adc jewel_count+1
+        sta jewel_count+1
 fog_outcome_jewel_msg:
         lda #<fog_found_island_msg
         sta src_ptr
@@ -718,6 +755,16 @@ fog_outcome_jewel_msg:
         lda #<fog_jewel_line_2
         sta src_ptr
         lda #>fog_jewel_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda damage_lo
+        sta num_print_lo
+        lda damage_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<fog_jewel_line_3
+        sta src_ptr
+        lda #>fog_jewel_line_3
         sta src_ptr+1
         jsr print_zero_terminated
         jsr print_newline
@@ -747,22 +794,39 @@ fog_outcome_cannon_msg:
 
 fog_outcome_crew:
         jsr clear_text_notice_screen
-        lda #25
+        jsr random_mod_40
+        clc
+        adc #9
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        lda #<fog_crew_line_2
+        sta src_ptr
+        lda #>fog_crew_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda damage_lo
+        sta num_print_lo
+        lda damage_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<fog_crew_line_3
+        sta src_ptr
+        lda #>fog_crew_line_3
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda damage_lo
         clc
         adc crew_men
         sta crew_men
-        bcc fog_outcome_crew_msg
-        inc crew_men+1
+        lda damage_hi
+        adc crew_men+1
+        sta crew_men+1
 fog_outcome_crew_msg:
         lda #<fog_found_island_msg
         sta src_ptr
         lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_crew_line_2
-        sta src_ptr
-        lda #>fog_crew_line_2
         sta src_ptr+1
         jsr print_zero_terminated
         jsr print_newline
@@ -771,12 +835,19 @@ fog_outcome_crew_msg:
 
 fog_outcome_grain:
         jsr clear_text_notice_screen
-        lda #4
+        jsr random_mod_6
+        clc
+        adc #2
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        lda damage_lo
         clc
         adc grain_sacks
         sta grain_sacks
-        bcc fog_outcome_grain_msg
-        inc grain_sacks+1
+        lda damage_hi
+        adc grain_sacks+1
+        sta grain_sacks+1
 fog_outcome_grain_msg:
         lda #<fog_found_island_msg
         sta src_ptr
@@ -787,6 +858,16 @@ fog_outcome_grain_msg:
         lda #<fog_grain_line_2
         sta src_ptr
         lda #>fog_grain_line_2
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda damage_lo
+        sta num_print_lo
+        lda damage_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<fog_grain_line_3
+        sta src_ptr
+        lda #>fog_grain_line_3
         sta src_ptr+1
         jsr print_zero_terminated
         jsr print_newline
@@ -872,24 +953,6 @@ run_boarding_fight_text:
         jsr clear_text_notice_screen
         jsr draw_fight_status_table
 
-        ldx #0
-        ldy #0
-        jsr set_cursor_xy
-        lda #<encounter_prompt_fire_board_1
-        sta src_ptr
-        lda #>encounter_prompt_fire_board_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-
-        ldx #0
-        ldy #1
-        jsr set_cursor_xy
-        lda #<encounter_prompt_fire_board_2
-        sta src_ptr
-        lda #>encounter_prompt_fire_board_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-
 boarding_round:
         jsr apply_boarding_round
         jsr update_fight_status_values
@@ -897,48 +960,134 @@ boarding_round:
         bne boarding_continue
         lda enemy_crew_lo
         cmp #20
-        bcc boarding_enemy_low
+        bcs boarding_continue
+        jmp boarding_enemy_low
 boarding_continue:
-        ldx #0
-        ldy #8
-        jsr set_cursor_xy
-        lda #<boarding_status_line_1
-        sta src_ptr
-        lda #>boarding_status_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        ldx #0
-        ldy #9
-        jsr set_cursor_xy
-        lda #<boarding_status_line_2
-        sta src_ptr
-        lda #>boarding_status_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
+        jsr clear_boarding_text_area
 
         ldx #0
-        ldy #11
-        jsr set_cursor_xy
+        ldy #6
+        jsr set_screen_ptr_xy
+        lda #<boarding_battle_line_1
+        sta src_ptr
+        lda #>boarding_battle_line_1
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+
+        ldx #0
+        ldy #7
+        jsr set_screen_ptr_xy
+        lda enemy_index
+        cmp #8
+        beq boarding_print_pirate_ship
+        lda #<boarding_enemy_line_prefix
+        sta src_ptr
+        lda #>boarding_enemy_line_prefix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        lda enemy_name_ptr_lo
+        sta src_ptr
+        lda enemy_name_ptr_hi
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        lda #<boarding_enemy_line_suffix
+        sta src_ptr
+        lda #>boarding_enemy_line_suffix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        jmp boarding_ship_line_done
+boarding_print_pirate_ship:
+        lda #<boarding_pirate_line
+        sta src_ptr
+        lda #>boarding_pirate_line
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+boarding_ship_line_done:
+
+        ldx #0
+        ldy #8
+        jsr set_screen_ptr_xy
+        lda #<boarding_enemy_losses_prefix
+        sta src_ptr
+        lda #>boarding_enemy_losses_prefix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        lda boarding_last_enemy_loss
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr append_word_decimal_screen
+        lda #<boarding_enemy_losses_suffix
+        sta src_ptr
+        lda #>boarding_enemy_losses_suffix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+
+        ldx #0
+        ldy #9
+        jsr set_screen_ptr_xy
+        lda #<boarding_enemy_remaining_prefix
+        sta src_ptr
+        lda #>boarding_enemy_remaining_prefix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        lda enemy_crew_lo
+        sta num_print_lo
+        lda enemy_crew_hi
+        sta num_print_hi
+        jsr append_word_decimal_screen
+        lda #<boarding_enemy_remaining_suffix
+        sta src_ptr
+        lda #>boarding_enemy_remaining_suffix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+
+        ldx #0
+        ldy #10
+        jsr set_screen_ptr_xy
+        lda #<boarding_player_losses_prefix
+        sta src_ptr
+        lda #>boarding_player_losses_prefix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+        lda boarding_last_player_loss
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr append_word_decimal_screen
+        lda #<boarding_player_losses_suffix
+        sta src_ptr
+        lda #>boarding_player_losses_suffix
+        sta src_ptr+1
+        jsr append_zero_terminated_screen
+
+        ldx #0
+        ldy #12
+        jsr set_screen_ptr_xy
         lda #<boarding_prompt_line_1
         sta src_ptr
         lda #>boarding_prompt_line_1
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr append_zero_terminated_screen
         ldx #0
-        ldy #12
-        jsr set_cursor_xy
+        ldy #13
+        jsr set_screen_ptr_xy
         lda #<boarding_prompt_line_2
         sta src_ptr
         lda #>boarding_prompt_line_2
         sta src_ptr+1
-        jsr print_zero_terminated
+        jsr append_zero_terminated_screen
 
 boarding_prompt_key:
         jsr read_key_blocking
         cmp #'K'
-        beq boarding_round
+        bne boarding_prompt_key_lower_k
+        jmp boarding_round
+boarding_prompt_key_lower_k:
         cmp #'k'
-        beq boarding_round
+        bne boarding_prompt_key_upper_t
+        jmp boarding_round
+boarding_prompt_key_upper_t:
         cmp #'T'
         beq boarding_back_to_ship
         cmp #'t'
@@ -997,6 +1146,7 @@ apply_boarding_round:
         clc
         adc #2
         sta damage_lo
+        sta boarding_last_player_loss
         lda #0
         sta damage_hi
 
@@ -1012,8 +1162,14 @@ apply_boarding_round:
         clc
         adc #7
         sta damage_lo
+        sta boarding_last_enemy_loss
         lda #0
         sta damage_hi
+
+        lda enemy_crew_lo
+        sta enemy_crew_prev_lo
+        lda enemy_crew_hi
+        sta enemy_crew_prev_hi
 
         sec
         lda enemy_crew_lo
@@ -1026,17 +1182,35 @@ apply_boarding_round:
         sta enemy_crew_lo
         sta enemy_crew_hi
 boarding_enemy_ok:
+        lda enemy_crew_hi
+        cmp enemy_crew_prev_hi
+        bcc boarding_enemy_monotonic_ok
+        bne boarding_enemy_force_decrease
+        lda enemy_crew_lo
+        cmp enemy_crew_prev_lo
+        bcc boarding_enemy_monotonic_ok
+boarding_enemy_force_decrease:
+        lda enemy_crew_prev_hi
+        ora enemy_crew_prev_lo
+        beq boarding_enemy_monotonic_ok
+        sec
+        lda enemy_crew_prev_lo
+        sbc #1
+        sta enemy_crew_lo
+        lda enemy_crew_prev_hi
+        sbc #0
+        sta enemy_crew_hi
+boarding_enemy_monotonic_ok:
         rts
 
 handle_enemy_surrender:
-        ldx #0
-        ldy #8
-        jsr set_cursor_xy
+        jsr clear_text_notice_screen
         lda #<surrender_line_1
         sta src_ptr
         lda #>surrender_line_1
         sta src_ptr+1
         jsr print_zero_terminated
+        jsr print_newline
 
         clc
         lda treasury_rigsdaler
@@ -1050,21 +1224,129 @@ handle_enemy_surrender:
         lda grain_sacks
         adc enemy_grain
         sta grain_sacks
-        bcc surrender_prompt_prize
+        bcc surrender_show_loot
         inc grain_sacks+1
 
-surrender_prompt_prize:
-        ldx #0
-        ldy #11
-        jsr set_cursor_xy
+surrender_show_loot:
+        lda #<surrender_loot_rgsd_prefix
+        sta src_ptr
+        lda #>surrender_loot_rgsd_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda enemy_rgsd_lo
+        sta num_print_lo
+        lda enemy_rgsd_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<surrender_loot_rgsd_suffix
+        sta src_ptr
+        lda #>surrender_loot_rgsd_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+        lda #<surrender_loot_men_prefix
+        sta src_ptr
+        lda #>surrender_loot_men_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda enemy_crew_lo
+        sta num_print_lo
+        lda enemy_crew_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<surrender_loot_men_suffix
+        sta src_ptr
+        lda #>surrender_loot_men_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+
+        lda #<surrender_loot_grain_prefix
+        sta src_ptr
+        lda #>surrender_loot_grain_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda enemy_grain
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<surrender_loot_grain_suffix
+        sta src_ptr
+        lda #>surrender_loot_grain_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<surrender_loot_take_line
+        sta src_ptr
+        lda #>surrender_loot_take_line
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr print_newline
+
+        // Required prize crew = 5 + floor(enemy crew / 2), matching BASIC flow.
+        lda enemy_crew_hi
+        lsr
+        sta damage_hi
+        lda enemy_crew_lo
+        ror
+        sta damage_lo
+        clc
+        lda damage_lo
+        adc #5
+        sta damage_lo
+        lda damage_hi
+        adc #0
+        sta damage_hi
+
+        lda #<surrender_prize_need_line_1
+        sta src_ptr
+        lda #>surrender_prize_need_line_1
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<surrender_prize_need_line_2_prefix
+        sta src_ptr
+        lda #>surrender_prize_need_line_2_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda damage_lo
+        sta num_print_lo
+        lda damage_hi
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<surrender_prize_need_line_2_suffix
+        sta src_ptr
+        lda #>surrender_prize_need_line_2_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<surrender_prize_have_prefix
+        sta src_ptr
+        lda #>surrender_prize_have_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda crew_men
+        sta num_print_lo
+        lda crew_men+1
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #<surrender_prize_have_suffix
+        sta src_ptr
+        lda #>surrender_prize_have_suffix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr print_newline
+
         lda #<surrender_line_2
         sta src_ptr
         lda #>surrender_line_2
         sta src_ptr+1
         jsr print_zero_terminated
-        ldx #0
-        ldy #12
-        jsr set_cursor_xy
+        jsr print_newline
         lda #<surrender_line_3
         sta src_ptr
         lda #>surrender_line_3
@@ -1094,23 +1376,6 @@ surrender_sink:
         rts
 
 surrender_prize:
-        lda enemy_crew_hi
-        bne surrender_prize_subtract_10
-        lda enemy_crew_lo
-        lsr
-        clc
-        adc #5
-        sta damage_lo
-        lda #0
-        sta damage_hi
-        jmp surrender_prize_apply
-surrender_prize_subtract_10:
-        lda #10
-        sta damage_lo
-        lda #0
-        sta damage_hi
-
-surrender_prize_apply:
         sec
         lda crew_men
         sbc damage_lo
@@ -1118,6 +1383,13 @@ surrender_prize_apply:
         lda crew_men+1
         sbc damage_hi
         sta crew_men+1
+        jsr print_newline
+        jsr print_newline
+        lda #<surrender_prize_sailing_line
+        sta src_ptr
+        lda #>surrender_prize_sailing_line
+        sta src_ptr+1
+        jsr print_zero_terminated
         rts
 
 init_enemy_from_roll:
@@ -1186,9 +1458,50 @@ random_mod_8:
         and #$07
         rts
 
+random_mod_6:
+        lda $dc05
+        and #$07
+        cmp #6
+        bcs random_mod_6
+        rts
+
+random_mod_40:
+        lda $dc04
+        cmp #240
+        bcs random_mod_40
+random_mod_40_reduce:
+        cmp #40
+        bcc random_mod_40_done
+        sec
+        sbc #40
+        jmp random_mod_40_reduce
+random_mod_40_done:
+        rts
+
 random_mod_64:
         lda $dc04
         and #$3f
+        rts
+
+clear_boarding_text_area:
+        ldy #8
+        sty fight_stat_row
+clear_boarding_text_area_row:
+        ldx #0
+        ldy fight_stat_row
+        jsr set_screen_ptr_xy
+        ldy #0
+        ldx #40
+clear_boarding_text_area_col:
+        lda #' '
+        sta (dst_ptr),y
+        iny
+        dex
+        bne clear_boarding_text_area_col
+        inc fight_stat_row
+        lda fight_stat_row
+        cmp #15
+        bcc clear_boarding_text_area_row
         rts
 
 clear_text_notice_screen:
@@ -1300,7 +1613,14 @@ print_double_newline:
 
 set_cursor_xy:
         // Callers pass X=column, Y=row.
-        sec
+        // KERNAL PLOT set-cursor expects C=0, X=row, Y=column.
+        txa
+        pha
+        tya
+        tax
+        pla
+        tay
+        clc
         jsr $fff0
         rts
 
@@ -1451,6 +1771,44 @@ write_zero_terminated_screen_loop:
 write_zero_terminated_screen_done:
         rts
 
+append_zero_terminated_screen:
+        ldy #0
+append_zero_terminated_screen_loop:
+        lda (src_ptr),y
+        beq append_zero_terminated_screen_done
+        jsr petscii_to_screen_code
+        sta (dst_ptr),y
+        iny
+        bne append_zero_terminated_screen_loop
+append_zero_terminated_screen_done:
+        tya
+        clc
+        adc dst_ptr
+        sta dst_ptr
+        bcc append_zero_terminated_screen_ptr_ok
+        inc dst_ptr+1
+append_zero_terminated_screen_ptr_ok:
+        rts
+
+append_word_decimal_screen:
+        lda num_print_lo
+        ora num_print_hi
+        beq append_word_decimal_screen_zero
+        jsr print_word_decimal
+        lda num_print_out_index
+        jmp append_word_decimal_screen_advance
+append_word_decimal_screen_zero:
+        jsr print_word_decimal
+        lda #1
+append_word_decimal_screen_advance:
+        clc
+        adc dst_ptr
+        sta dst_ptr
+        bcc append_word_decimal_screen_ptr_ok
+        inc dst_ptr+1
+append_word_decimal_screen_ptr_ok:
+        rts
+
 petscii_to_screen_code:
         // Uppercase/graphics conversion for direct screen RAM writes.
         // $40-$5F  -> $00-$1F
@@ -1534,6 +1892,30 @@ print_word_decimal_next:
         inx
         cpx #5
         bne print_word_decimal_digit
+        rts
+
+print_inline_word_decimal:
+        lda #' '
+        jsr $ffd2
+        ldx #0
+print_inline_word_decimal_clear:
+        lda #0
+        sta inline_decimal_buffer,x
+        inx
+        cpx #6
+        bne print_inline_word_decimal_clear
+        lda #<inline_decimal_buffer
+        sta dst_ptr
+        lda #>inline_decimal_buffer
+        sta dst_ptr+1
+        jsr print_word_decimal
+        lda #<inline_decimal_buffer
+        sta src_ptr
+        lda #>inline_decimal_buffer
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda #' '
+        jsr $ffd2
         rts
 
 on_harbour_entered:
@@ -1760,11 +2142,15 @@ enemy_cannons_lo: .byte 0
 enemy_cannons_hi: .byte 0
 enemy_crew_lo: .byte 0
 enemy_crew_hi: .byte 0
+enemy_crew_prev_lo: .byte 0
+enemy_crew_prev_hi: .byte 0
 enemy_rgsd_lo: .byte 0
 enemy_rgsd_hi: .byte 0
 enemy_grain: .byte 0
 enemy_ship_hp_lo: .byte 0
 enemy_ship_hp_hi: .byte 0
+boarding_last_player_loss: .byte 0
+boarding_last_enemy_loss: .byte 0
 battle_return_to_main_choice: .byte 0
 damage_lo: .byte 0
 damage_hi: .byte 0
@@ -1772,6 +2158,7 @@ num_print_lo: .byte 0
 num_print_hi: .byte 0
 num_print_started: .byte 0
 num_print_out_index: .byte 0
+inline_decimal_buffer: .fill 6, 0
 fight_stat_col: .byte 0
 fight_stat_row: .byte 0
 player_naval_title_index: .byte 1
@@ -1895,9 +2282,33 @@ fight_status_row_2:
                         .text "REP:        "
                         .byte 98
                         .byte 0
-boarding_status_line_1: .text "KAMPEN RASER OMBORD P] FJENDEN!"
+boarding_battle_line_1: .text "KAMPEN RASER OMBORD P]"
                         .byte 0
-boarding_status_line_2: .text "DU HAR MISTET TAPRE M[ND."
+boarding_enemy_line_prefix:
+                        .text "DEN ENGELSKE "
+                        .byte 0
+boarding_enemy_line_suffix:
+                        .text " !"
+                        .byte 0
+boarding_pirate_line:   .text "S\R\VERSKIBET!"
+                        .byte 0
+boarding_enemy_losses_prefix:
+                        .text "FJENDEN HAR "
+                        .byte 0
+boarding_enemy_losses_suffix:
+                        .text " FALDNE,"
+                        .byte 0
+boarding_enemy_remaining_prefix:
+                        .text "MEN HAN HAR "
+                        .byte 0
+boarding_enemy_remaining_suffix:
+                        .text " IGEN."
+                        .byte 0
+boarding_player_losses_prefix:
+                        .text "DU HAR MISTET "
+                        .byte 0
+boarding_player_losses_suffix:
+                        .text " AF DINE TAPRE M[ND."
                         .byte 0
 boarding_prompt_line_1: .text "VIL DU K[MPE VIDERE (K)"
                         .byte 0
@@ -1908,6 +2319,45 @@ surrender_line_1:       .text "DE OVERGIVER SIG!!"
 surrender_line_2:       .text "VIL DU S[NKE DET, (S)"
                         .byte 0
 surrender_line_3:       .text "ELLER TAGE DET SOM PRISE (P) ?"
+                        .byte 0
+surrender_loot_rgsd_prefix:
+                        .text "DER ER"
+                        .byte 0
+surrender_loot_rgsd_suffix:
+                        .text "RIGSDALER OMBORD."
+                        .byte 0
+surrender_loot_men_prefix:
+                        .text "DER ER"
+                        .byte 0
+surrender_loot_men_suffix:
+                        .text "OVERLEVENDE OMBORD."
+                        .byte 0
+surrender_loot_grain_prefix:
+                        .text "DER ER"
+                        .byte 0
+surrender_loot_grain_suffix:
+                        .text "S[KKE KORN OMBORD."
+                        .byte 0
+surrender_loot_take_line:
+                        .text "DEM TAGER DU!"
+                        .byte 0
+surrender_prize_need_line_1:
+                        .text "DETTE SKIB BEH\\VER ET PRISEMANDSKAB"
+                        .byte 0
+surrender_prize_need_line_2_prefix:
+                        .text "P]"
+                        .byte 0
+surrender_prize_need_line_2_suffix:
+                        .text "MAND!"
+                        .byte 0
+surrender_prize_have_prefix:
+                        .text "DU HAR"
+                        .byte 0
+surrender_prize_have_suffix:
+                        .text "MAND."
+                        .byte 0
+surrender_prize_sailing_line:
+                        .text "OK, DE ER P] VEJ TIL K\BENHAVN."
                         .byte 0
 
 fog_line_1:             .text "UDKIGGEN MELDER:"
@@ -1928,19 +2378,29 @@ fog_enemy_line_2:       .text "ET V[MMELIGT SKIB!"
                         .byte 0
 fog_found_island_msg:   .text "DU FINDER EN \DE \"
                         .byte 0
-fog_treasure_line_2:    .text "MED EN SKATTEKISTE MED RIGSDALER!"
+fog_treasure_line_2:    .text "MED EN SKATTEKISTE,"
                         .byte 0
-fog_jewel_line_2:       .text "MED JUVELER!"
+fog_treasure_line_3:    .text "DER INDEHOLDER"
+                        .byte 0
+fog_treasure_line_4:    .text "RIGSDALER!"
+                        .byte 0
+fog_jewel_line_2:       .text "MED"
+                        .byte 0
+fog_jewel_line_3:       .text "JUVELER!"
                         .byte 0
 fog_cannon_line_2:      .text "HVOR DER LIGGER EN KANON!"
                         .byte 0
-fog_crew_line_2:        .text "MED SKIBBRUDNE, SOM TAGER HYRE!"
+fog_crew_line_2:        .text "MED"
+                        .byte 0
+fog_crew_line_3:        .text "SKIBBRUDNE, SOM TAGER HYRE!"
                         .byte 0
 fog_nothing_line_1:     .text "N\H!"
                         .byte 0
 fog_nothing_line_2:     .text "DER VAR ALLIGEVEL IKKE NOGET."
                         .byte 0
-fog_grain_line_2:       .text "MED S[KKE KORN!"
+fog_grain_line_2:       .text "MED"
+                        .byte 0
+fog_grain_line_3:       .text "S[KKE KORN!"
                         .byte 0
 fog_plague_line_1_suffix:
                         .text "MED EN PESTSYG SKIBBRUDEN!"
