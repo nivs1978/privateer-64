@@ -2362,7 +2362,7 @@ surrender_prize_sailing_line:
 
 fog_line_1:             .text "UDKIGGEN MELDER:"
                         .byte 0
-fog_line_2:             .text "OH]J!"
+fog_line_2:             .text "OH\J!"
                         .byte 0
 fog_line_3:             .text "DER ER EN UNDERLIG T]GEBANKE 2 S\MIL"
                         .byte 0
