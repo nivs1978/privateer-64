@@ -2,6 +2,7 @@
 .label dst_ptr = $fd
 .label len_lo = $f9
 .label len_hi = $fa
+.label bmp_char_ptr = $f7   // charset read pointer for draw_bmp_char (2 bytes: $f7=lo, $f8=hi)
 
 // Normalize one-color cells by duplicating the nonzero nibble into the zero nibble.
 
@@ -101,6 +102,7 @@ draw_map_row_loop:
         sta $d018
 
         jsr hide_ship
+        jsr draw_map_status_table
         cli
         rts
 
@@ -220,6 +222,7 @@ resolve_pixel_move_sea:
         lda $dc04
         and #$03
         beq resolve_pixel_move_random_event
+        jsr update_map_move_values
         jmp game_loop_wait
 resolve_pixel_move_random_event:
         jsr on_random_sea_event
@@ -383,6 +386,7 @@ on_land_collision_zero:
         lda #0
         sta ship_repair_points
 on_land_collision_done:
+        jsr check_ship_survival
         rts
 
 on_random_sea_event:
@@ -938,6 +942,7 @@ fight_fire_abort:
 
 fight_fire_execute:
         jsr apply_cannon_round
+        jsr check_ship_survival
         lda enemy_ship_hp_hi
         bne run_cannon_fight_round
         lda enemy_ship_hp_lo
@@ -955,6 +960,7 @@ run_boarding_fight_text:
 
 boarding_round:
         jsr apply_boarding_round
+        jsr check_ship_survival
         jsr update_fight_status_values
         lda enemy_crew_hi
         bne boarding_continue
@@ -1156,7 +1162,14 @@ apply_boarding_round:
         sta crew_men
         lda crew_men+1
         sbc damage_hi
+        bcs boarding_player_crew_ok
+        lda #0                      // clamp to 0 on underflow
+        sta crew_men
         sta crew_men+1
+        jmp boarding_player_done
+boarding_player_crew_ok:
+        sta crew_men+1
+boarding_player_done:
 
         jsr random_mod_16
         clc
@@ -1596,6 +1609,66 @@ show_press_any_key_wait:
         beq show_press_any_key_wait
         rts
 
+// BASIC line 5000: die if crew_men <= 10 or ship_repair_points <= 20.
+// Resets the stack and jumps to ship_sank if either threshold is breached.
+check_ship_survival:
+        lda crew_men+1
+        bne check_survival_ok       // hi byte set → > 255, survives
+        lda crew_men
+        cmp #11
+        bcc ship_sank               // crew <= 10 → sink
+check_survival_ok:
+        lda ship_repair_points
+        cmp #21
+        bcc ship_sank               // repair <= 20 → sink
+        rts
+
+ship_sank:
+        ldx #$ff
+        txs
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
+        lda #<ship_sank_msg
+        sta src_ptr
+        lda #>ship_sank_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda crew_men
+        sta num_print_lo
+        lda crew_men+1
+        sta num_print_hi
+        lda #<ship_sank_men_prefix
+        sta src_ptr
+        lda #>ship_sank_men_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_inline_word_decimal
+        lda #<ship_sank_rep_prefix
+        sta src_ptr
+        lda #>ship_sank_rep_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        lda ship_repair_points
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        jsr print_newline
+        lda player_points
+        sta num_print_lo
+        lda player_points+1
+        sta num_print_hi
+        lda #<ship_sank_score_prefix
+        sta src_ptr
+        lda #>ship_sank_score_prefix
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_inline_word_decimal
+        jsr print_newline
+        jsr show_press_any_key
+        rts
+
 read_key_blocking:
         jsr $ffe4
         beq read_key_blocking
@@ -1622,6 +1695,316 @@ set_cursor_xy:
         tay
         clc
         jsr $fff0
+        rts
+
+// ---------------------------------------------------------------
+// Bitmap text rendering: draw PETSCII characters into the hires
+// map bitmap (bank 1, $6000) using the charset at INTRO_CHARSET_RAM.
+// ---------------------------------------------------------------
+
+// Draw one PETSCII character at (bmp_char_col, bmp_char_row).
+// A = PETSCII code.  Clobbers A, X, Y, bmp_char_ptr ($f7/$f8), dst_ptr, $f9.
+draw_bmp_char:
+        jsr petscii_to_screen_code
+        // bmp_char_ptr = INTRO_CHARSET_RAM + screen_code * 8
+        sta $f9
+        lda #0
+        asl $f9                     // shift 3× collecting carry into A
+        rol
+        asl $f9
+        rol
+        asl $f9
+        rol
+        clc
+        adc #>INTRO_CHARSET_RAM
+        sta bmp_char_ptr+1
+        lda $f9
+        sta bmp_char_ptr
+        // dst_ptr = bmp_row_base[row] + col * 8
+        ldx bmp_char_row
+        lda bmp_row_base_lo, x
+        sta dst_ptr
+        lda bmp_row_base_hi, x
+        sta dst_ptr+1
+        lda bmp_char_col
+        sta $f9
+        lda #0
+        asl $f9
+        rol
+        asl $f9
+        rol
+        asl $f9
+        rol
+        sta $fa                     // high byte of col*8 (use $fa to keep bmp_char_ptr intact)
+        lda $f9
+        clc
+        adc dst_ptr
+        sta dst_ptr
+        lda $fa
+        adc dst_ptr+1
+        sta dst_ptr+1
+        // Copy 8 pixel rows from charset to bitmap
+        ldy #7
+dbc_loop:
+        lda (bmp_char_ptr), y
+        sta (dst_ptr), y
+        dey
+        bpl dbc_loop
+        // Set screen RAM color byte: white fg (1), black bg (0) = $10
+        ldx bmp_char_row
+        lda clr_row_base_lo, x
+        sta dst_ptr
+        lda clr_row_base_hi, x
+        sta dst_ptr+1
+        ldy bmp_char_col
+        lda #$86                    // orange fg (8) on dark blue bg (6)
+        sta (dst_ptr), y
+        rts
+
+// Print a zero-terminated PETSCII string into the bitmap.
+// src_ptr = string address.  bmp_char_col/bmp_char_row must be set.
+// Advances bmp_char_col for each character printed.
+print_bmp_string:
+        ldy #0
+pbs_loop:
+        lda (src_ptr), y
+        beq pbs_done
+        sty bmp_str_idx             // save string index across draw_bmp_char
+        jsr draw_bmp_char
+        inc bmp_char_col
+        ldy bmp_str_idx
+        iny
+        bne pbs_loop
+pbs_done:
+        rts
+
+// Render num_print_lo/hi as decimal digits at (bmp_char_col, bmp_char_row).
+// bmp_char_col is advanced past the last digit.
+print_bmp_decimal:
+        lda num_print_lo
+        ora num_print_hi
+        beq pbd_zero
+        lda #<bmp_decimal_buf
+        sta dst_ptr
+        lda #>bmp_decimal_buf
+        sta dst_ptr+1
+        jsr print_word_decimal
+        ldy #0
+pbd_digit_loop:
+        cpy num_print_out_index
+        beq pbd_done
+        lda bmp_decimal_buf, y
+        sty bmp_str_idx
+        jsr draw_bmp_char
+        inc bmp_char_col
+        ldy bmp_str_idx
+        iny
+        bne pbd_digit_loop
+        rts
+pbd_zero:
+        lda #<bmp_decimal_buf
+        sta dst_ptr
+        lda #>bmp_decimal_buf
+        sta dst_ptr+1
+        jsr print_word_decimal      // writes '0' to bmp_decimal_buf[0]
+        lda bmp_decimal_buf
+        jsr draw_bmp_char
+        inc bmp_char_col
+pbd_done:
+        rts
+
+// Clear a 6-char field with spaces then print decimal at col+1.
+// X = start column, Y = row.  num_print_lo/hi = value.
+print_bmp_stat_word:
+        stx bmp_char_col
+        sty bmp_char_row
+        lda #6
+        sta bmp_field_cnt
+pbsw_clear:
+        lda #' '
+        jsr draw_bmp_char
+        inc bmp_char_col
+        dec bmp_field_cnt
+        bne pbsw_clear
+        // reset to col+1 (started at col, incremented 6 times, go back 5)
+        lda bmp_char_col
+        sec
+        sbc #5
+        sta bmp_char_col
+        jsr print_bmp_decimal
+        rts
+
+// Draw label rows and current stat values into the map bitmap.
+draw_map_status_table:
+        // Row 21: three label cells, no pipe chars
+        lda #1
+        sta bmp_char_col
+        lda #21
+        sta bmp_char_row
+        lda #<map_label_trk
+        sta src_ptr
+        lda #>map_label_trk
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda #14
+        sta bmp_char_col
+        lda #<map_label_rgsdl
+        sta src_ptr
+        lda #>map_label_rgsdl
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda #27
+        sta bmp_char_col
+        lda #<map_label_skyts
+        sta src_ptr
+        lda #>map_label_skyts
+        sta src_ptr+1
+        jsr print_bmp_string
+        // Row 23: three label cells, no pipe chars
+        lda #1
+        sta bmp_char_col
+        lda #23
+        sta bmp_char_row
+        lda #<map_label_maend
+        sta src_ptr
+        lda #>map_label_maend
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda #14
+        sta bmp_char_col
+        lda #<map_label_point
+        sta src_ptr
+        lda #>map_label_point
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda #27
+        sta bmp_char_col
+        lda #<map_label_rep
+        sta src_ptr
+        lda #>map_label_rep
+        sta src_ptr+1
+        jsr print_bmp_string
+        jsr update_map_bmp_values
+        // Row 0, col 2: POINT label + value (load only; points change via events)
+        lda #2
+        sta bmp_char_col
+        lda #0
+        sta bmp_char_row
+        lda #<map_label_point
+        sta src_ptr
+        lda #>map_label_point
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda #' '                    // separator space before value
+        jsr draw_bmp_char
+        inc bmp_char_col
+        lda player_points
+        sta num_print_lo
+        lda player_points+1
+        sta num_print_hi
+        jsr print_bmp_decimal
+        lda #' '                    // one trailing space
+        jsr draw_bmp_char
+        // Row 0, col 16: goal display (M]L: x P] y TR[K)
+        lda #16
+        sta bmp_char_col
+        lda #<map_goal_prefix
+        sta src_ptr
+        lda #>map_goal_prefix
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda point_limit
+        sta num_print_lo
+        lda point_limit+1
+        sta num_print_hi
+        jsr print_bmp_decimal
+        lda #<map_goal_mid
+        sta src_ptr
+        lda #>map_goal_mid
+        sta src_ptr+1
+        jsr print_bmp_string
+        lda turn_limit
+        sta num_print_lo
+        lda turn_limit+1
+        sta num_print_hi
+        jsr print_bmp_decimal
+        lda #<map_goal_suffix
+        sta src_ptr
+        lda #>map_goal_suffix
+        sta src_ptr+1
+        jsr print_bmp_string
+        rts
+
+// Update only the two values that change during navigation.
+update_map_move_values:
+        ldx #6
+        ldy #21
+        lda voyage_turn_counter
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        ldx #33
+        ldy #23
+        lda ship_repair_points
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        lda #' '                    // clear cell right of last digit in case REP shrank
+        jsr draw_bmp_char
+        rts
+
+// Write current game stats as decimal into the map bitmap status area.
+update_map_bmp_values:
+        // TR[K (voyage_turn_counter)
+        ldx #6
+        ldy #21
+        lda voyage_turn_counter
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        // RGSDL
+        ldx #20
+        ldy #21
+        lda treasury_rigsdaler
+        sta num_print_lo
+        lda treasury_rigsdaler+1
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        // SKYTS
+        ldx #33
+        ldy #21
+        lda ship_cannons
+        sta num_print_lo
+        lda ship_cannons+1
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        // M[ND
+        ldx #6
+        ldy #23
+        lda crew_men
+        sta num_print_lo
+        lda crew_men+1
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        // POINT
+        ldx #20
+        ldy #23
+        lda player_points
+        sta num_print_lo
+        lda player_points+1
+        sta num_print_hi
+        jsr print_bmp_stat_word
+        // REP
+        ldx #33
+        ldy #23
+        lda ship_repair_points
+        sta num_print_lo
+        lda #0
+        sta num_print_hi
+        jsr print_bmp_stat_word
         rts
 
 draw_fight_status_table:
@@ -2161,6 +2544,11 @@ num_print_out_index: .byte 0
 inline_decimal_buffer: .fill 6, 0
 fight_stat_col: .byte 0
 fight_stat_row: .byte 0
+bmp_char_col:   .byte 0
+bmp_char_row:   .byte 0
+bmp_str_idx:    .byte 0
+bmp_field_cnt:  .byte 0
+bmp_decimal_buf:.fill 6, 0
 player_naval_title_index: .byte 1
 player_noble_title_index: .byte 1
 
@@ -2282,7 +2670,33 @@ fight_status_row_2:
                         .text "REP:        "
                         .byte 98
                         .byte 0
+ship_sank_msg:          .text "DIT SKIB GIKK NED MED MAND OG MUS!"
+                        .byte 0
+ship_sank_men_prefix:   .text "M[ND: "
+                        .byte 0
+ship_sank_rep_prefix:   .text "  REP: "
+                        .byte 0
+ship_sank_score_prefix: .text "DU FIK "
+                        .byte 0
 boarding_battle_line_1: .text "KAMPEN RASER OMBORD P]"
+                        .byte 0
+map_label_trk:          .text "TR[K:"
+                        .byte 0
+map_label_rgsdl:        .text "RGSDL:"
+                        .byte 0
+map_label_skyts:        .text "SKYTS:"
+                        .byte 0
+map_label_maend:        .text "M[ND:"
+                        .byte 0
+map_label_point:        .text "POINT:"
+                        .byte 0
+map_goal_prefix:        .text "M]L: "
+                        .byte 0
+map_goal_mid:           .text " P] "
+                        .byte 0
+map_goal_suffix:        .text " TR[K "
+                        .byte 0
+map_label_rep:          .text "REP:"
                         .byte 0
 boarding_enemy_line_prefix:
                         .text "DEN ENGELSKE "
@@ -2527,6 +2941,32 @@ decimal_divisor_lo:
 decimal_divisor_hi:
                         .byte >10000,>1000,>100,>10,>1
 
+// Bitmap base addresses per text row: $6000 + row * 320
+bmp_row_base_lo:
+        .byte <($6000+0*320),<($6000+1*320),<($6000+2*320),<($6000+3*320),<($6000+4*320)
+        .byte <($6000+5*320),<($6000+6*320),<($6000+7*320),<($6000+8*320),<($6000+9*320)
+        .byte <($6000+10*320),<($6000+11*320),<($6000+12*320),<($6000+13*320),<($6000+14*320)
+        .byte <($6000+15*320),<($6000+16*320),<($6000+17*320),<($6000+18*320),<($6000+19*320)
+        .byte <($6000+20*320),<($6000+21*320),<($6000+22*320),<($6000+23*320),<($6000+24*320)
+bmp_row_base_hi:
+        .byte >($6000+0*320),>($6000+1*320),>($6000+2*320),>($6000+3*320),>($6000+4*320)
+        .byte >($6000+5*320),>($6000+6*320),>($6000+7*320),>($6000+8*320),>($6000+9*320)
+        .byte >($6000+10*320),>($6000+11*320),>($6000+12*320),>($6000+13*320),>($6000+14*320)
+        .byte >($6000+15*320),>($6000+16*320),>($6000+17*320),>($6000+18*320),>($6000+19*320)
+        .byte >($6000+20*320),>($6000+21*320),>($6000+22*320),>($6000+23*320),>($6000+24*320)
+// Color RAM base addresses per text row: $4400 + row * 40
+clr_row_base_lo:
+        .byte <($4400+0*40),<($4400+1*40),<($4400+2*40),<($4400+3*40),<($4400+4*40)
+        .byte <($4400+5*40),<($4400+6*40),<($4400+7*40),<($4400+8*40),<($4400+9*40)
+        .byte <($4400+10*40),<($4400+11*40),<($4400+12*40),<($4400+13*40),<($4400+14*40)
+        .byte <($4400+15*40),<($4400+16*40),<($4400+17*40),<($4400+18*40),<($4400+19*40)
+        .byte <($4400+20*40),<($4400+21*40),<($4400+22*40),<($4400+23*40),<($4400+24*40)
+clr_row_base_hi:
+        .byte >($4400+0*40),>($4400+1*40),>($4400+2*40),>($4400+3*40),>($4400+4*40)
+        .byte >($4400+5*40),>($4400+6*40),>($4400+7*40),>($4400+8*40),>($4400+9*40)
+        .byte >($4400+10*40),>($4400+11*40),>($4400+12*40),>($4400+13*40),>($4400+14*40)
+        .byte >($4400+15*40),>($4400+16*40),>($4400+17*40),>($4400+18*40),>($4400+19*40)
+        .byte >($4400+20*40),>($4400+21*40),>($4400+22*40),>($4400+23*40),>($4400+24*40)
 screen_row_addr_lo:
                         .byte <INTRO_SCREEN_RAM,<(INTRO_SCREEN_RAM+$28),<(INTRO_SCREEN_RAM+$50),<(INTRO_SCREEN_RAM+$78),<(INTRO_SCREEN_RAM+$a0)
                         .byte <(INTRO_SCREEN_RAM+$c8),<(INTRO_SCREEN_RAM+$f0),<(INTRO_SCREEN_RAM+$118),<(INTRO_SCREEN_RAM+$140),<(INTRO_SCREEN_RAM+$168)

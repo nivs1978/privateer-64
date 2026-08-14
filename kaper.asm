@@ -209,6 +209,9 @@ ship_cannons:       .word 20
 jewel_count:        .word 0
 player_points:      .word 0
 voyage_turn_counter:.byte 0
+// BASIC line 102: IPOINTLIM = IPOINT!+500+250*IDIF, ITURLIM = ITUR+325-12.5*IDIF (IDIF=2 at start)
+point_limit:        .word 1000
+turn_limit:         .word 300
 
 char_ship:   .byte 36,36,36,36,36,255,127,62
 
