@@ -248,6 +248,7 @@ ship_sprites:
 
         .import source "intro_screen.inc"
         .import source "intro.inc"
+        .import source "shooting.inc"
 
         .import source "map.inc"
 

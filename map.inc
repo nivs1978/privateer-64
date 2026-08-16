@@ -199,6 +199,10 @@ begin_pixel_move:
 
 resolve_pixel_move:
         inc voyage_turn_counter
+        bne resolve_pixel_move_turn_incremented
+        inc voyage_turn_counter+1
+resolve_pixel_move_turn_incremented:
+        jsr check_victory_conditions
         jsr derive_map_cell_from_ship_position
 
         ldx map_ship_col
@@ -249,6 +253,7 @@ init_map_navigation:
         sta ship_y
         lda #0
         sta voyage_turn_counter
+        sta voyage_turn_counter+1
         sta ship_collision_counter
         lda #200
         sta ship_repair_points
@@ -544,10 +549,12 @@ encounter_board_done:
         rts
 
 encounter_fire_selected:
-        jsr run_cannon_fight_text
+        jsr run_shooting_minigame
         lda battle_return_to_main_choice
-        bne encounter_fire_done
-        jmp encounter_choice_1
+        beq encounter_fire_abort
+        rts
+encounter_fire_abort:
+        jmp encounter_attack_selected
 encounter_fire_done:
         rts
 
@@ -1616,12 +1623,130 @@ check_ship_survival:
         bne check_survival_ok       // hi byte set → > 255, survives
         lda crew_men
         cmp #11
-        bcc ship_sank               // crew <= 10 → sink
+        bcc check_survival_sink     // crew <= 10 → sink
 check_survival_ok:
         lda ship_repair_points
         cmp #21
-        bcc ship_sank               // repair <= 20 → sink
+        bcc check_survival_sink     // repair <= 20 → sink
         rts
+check_survival_sink:
+        jmp ship_sank
+
+// BASIC lines 1170-1171: win when the score reaches its target or the
+// current voyage reaches its turn target. This runs before hazards or upkeep.
+check_victory_conditions:
+        lda player_points+1
+        cmp point_limit+1
+        bcc check_victory_turn_limit
+        bne player_won_stage
+        lda player_points
+        cmp point_limit
+        bcs player_won_stage
+
+check_victory_turn_limit:
+        lda voyage_turn_counter+1
+        cmp turn_limit+1
+        bcc check_victory_not_yet
+        bne player_won_stage
+        lda voyage_turn_counter
+        cmp turn_limit
+        bcc check_victory_not_yet
+player_won_stage:
+        jmp show_victory_and_advance
+check_victory_not_yet:
+        rts
+
+// BASIC lines 6100-6119 and 102. Advance the difficulty, then calculate
+// the next point and turn targets from the current score and voyage count.
+show_victory_and_advance:
+        jsr hide_ship
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
+        lda #<victory_msg
+        sta src_ptr
+        lda #>victory_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        lda #<victory_next_goal_msg
+        sta src_ptr
+        lda #>victory_next_goal_msg
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+        jsr show_press_any_key
+
+        inc difficulty_level
+        inc difficulty_level
+        lda player_naval_title_index
+        cmp #5
+        bcs victory_title_indices_done
+        inc player_naval_title_index
+        inc player_noble_title_index
+victory_title_indices_done:
+
+        // IPOINTLIM = IPOINT + 500 + 250 * IDIF.
+        lda #<500
+        sta target_add_lo
+        lda #>500
+        sta target_add_hi
+        ldx difficulty_level
+victory_point_add_loop:
+        cpx #0
+        beq victory_point_target
+        clc
+        lda target_add_lo
+        adc #<250
+        sta target_add_lo
+        lda target_add_hi
+        adc #>250
+        sta target_add_hi
+        dex
+        bne victory_point_add_loop
+victory_point_target:
+        clc
+        lda player_points
+        adc target_add_lo
+        sta point_limit
+        lda player_points+1
+        adc target_add_hi
+        sta point_limit+1
+
+        // ITURLIM = ITUR + 325 - 12.5 * IDIF; IDIF is always even.
+        lda #<325
+        sta target_add_lo
+        lda #>325
+        sta target_add_hi
+        ldx difficulty_level
+        txa
+        lsr
+        tax
+victory_turn_subtract_loop:
+        cpx #0
+        beq victory_turn_target
+        sec
+        lda target_add_lo
+        sbc #25
+        sta target_add_lo
+        lda target_add_hi
+        sbc #0
+        sta target_add_hi
+        dex
+        bne victory_turn_subtract_loop
+victory_turn_target:
+        clc
+        lda voyage_turn_counter
+        adc target_add_lo
+        sta turn_limit
+        lda voyage_turn_counter+1
+        adc target_add_hi
+        sta turn_limit+1
+
+        jsr draw_map
+        jsr load_ship_sprites
+        jsr sync_ship_to_grid_position
+        jsr show_ship
+        jmp game_loop_wait
 
 ship_sank:
         ldx #$ff
@@ -1941,7 +2066,7 @@ update_map_move_values:
         ldy #21
         lda voyage_turn_counter
         sta num_print_lo
-        lda #0
+        lda voyage_turn_counter+1
         sta num_print_hi
         jsr print_bmp_stat_word
         ldx #33
@@ -1962,7 +2087,7 @@ update_map_bmp_values:
         ldy #21
         lda voyage_turn_counter
         sta num_print_lo
-        lda #0
+        lda voyage_turn_counter+1
         sta num_print_hi
         jsr print_bmp_stat_word
         // RGSDL
@@ -2056,7 +2181,10 @@ update_fight_status_values:
         ldx #7
         ldy #21
         lda voyage_turn_counter
-        jsr print_fight_byte_stat
+        sta num_print_lo
+        lda voyage_turn_counter+1
+        sta num_print_hi
+        jsr print_fight_word_stat
 
         // RGSDL
         lda treasury_rigsdaler
@@ -2514,6 +2642,9 @@ map_query_byte_index: .byte 0
 current_map_cell_type: .byte 0
 last_harbour_id: .byte 0
 ship_collision_counter: .byte 0
+difficulty_level: .byte 0
+target_add_lo: .byte 0
+target_add_hi: .byte 0
 crew_work_lo: .byte 0
 crew_work_hi: .byte 0
 crew_loss_lo: .byte 0
@@ -2677,6 +2808,10 @@ ship_sank_men_prefix:   .text "M[ND: "
 ship_sank_rep_prefix:   .text "  REP: "
                         .byte 0
 ship_sank_score_prefix: .text "DU FIK "
+                        .byte 0
+victory_msg:            .text "TILLYKKE!!!!"
+                        .byte 0
+victory_next_goal_msg:  .text "DU HAR N]ET M]LET. N[STE M]L VENTER!"
                         .byte 0
 boarding_battle_line_1: .text "KAMPEN RASER OMBORD P]"
                         .byte 0
