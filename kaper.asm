@@ -51,6 +51,25 @@ prtask_done:
         lda #13
         jsr $ffd2
 
+        // Build-time diagnostic: bytes still free before code would reach into
+        // $4400 (VIC bank 1 screen RAM), so an overlap regression is easy to spot.
+        ldx #0
+prtmem: lda freememstr,x
+        beq prtmem_done
+        jsr $ffd2
+        inx
+        bne prtmem
+prtmem_done:
+        lda #<($4400 - code_segment_end)
+        sta num_print_lo
+        lda #>($4400 - code_segment_end)
+        sta num_print_hi
+        jsr print_inline_word_decimal
+        lda #13
+        jsr $ffd2
+        lda #13
+        jsr $ffd2
+
         // CHROUT clear can overwrite pointer bytes in the active screen's pointer table.
         jsr set_sprite_pointers_intro
 
@@ -191,6 +210,8 @@ hide_ship:
 askstr:  .byte 17
          .text "S]DAN SER DIT SKIB UD:"
          .byte 0
+freememstr:.text "FRI HUKOMMELSE F\R KODE:"
+         .byte 0
 hvadstr: .text "HVAD ER DIT NAVN? "
          .byte 0
 kaperstr:.text "KAPER"
@@ -202,18 +223,25 @@ ship_y:  .byte 72
 
 // Global player state (shared across include files).
 crew_men:           .word 200
-ship_repair_points: .byte 200
+ship_repair_points: .word 200
 treasury_rigsdaler: .word 600
 grain_sacks:        .word 30
 ship_cannons:       .word 20
 jewel_count:        .word 0
 player_points:      .word 0
-voyage_turn_counter:.byte 0
+// voyage_turn_counter must stay a full word: it is read/incremented as one
+// everywhere (game_loop, victory checks, status displays). A stray .byte
+// declaration here let its high byte alias whatever variable followed it,
+// so writes to that variable (e.g. a prize payout) looked like a huge turn count.
+voyage_turn_counter:.word 0
+// Prize crew/rigsdaler in transit to K\benhavn (BASIC MANDPRISE/IRGSDPRI), paid out on arrival there.
+pending_prize_crew_lo:       .byte 0
+pending_prize_crew_hi:       .byte 0
+pending_prize_rigsdaler_lo:  .byte 0
+pending_prize_rigsdaler_hi:  .byte 0
 // BASIC line 102: IPOINTLIM = IPOINT!+500+250*IDIF, ITURLIM = ITUR+325-12.5*IDIF (IDIF=2 at start)
 point_limit:        .word 1000
 turn_limit:         .word 300
-
-char_ship:   .byte 36,36,36,36,36,255,127,62
 
         // 3 sprites generated with spritemate on 01/08/2026, 12:48:00
         // Byte 64 of each sprite contains multicolor (high nibble) & color (low nibble) information
@@ -249,6 +277,12 @@ ship_sprites:
         .import source "intro_screen.inc"
         .import source "intro.inc"
         .import source "shooting.inc"
+        .import source "harbour_sailing.inc"
+        // harbour.inc must be imported before map.inc: map.inc ends by relocating
+        // the program counter to $9000 (the embedded MapArt bitmap, inside the
+        // BASIC ROM window), and anything imported after it would be linked into
+        // that ROM-shadowed range and fail to execute at runtime.
+        .import source "harbour.inc"
 
         .import source "map.inc"
 

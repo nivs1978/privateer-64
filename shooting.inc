@@ -252,9 +252,12 @@ upd_fld_clr_loop:
         jsr print_fight_word_stat
 
         lda ship_repair_points
+        sta num_print_lo
+        lda ship_repair_points+1
+        sta num_print_hi
         ldx #14
         ldy #23
-        jsr print_fight_byte_stat
+        jsr print_fight_word_stat
 
         lda enemy_cannons_lo
         ldx #27
@@ -320,8 +323,6 @@ upd_wind_reset:
 
 init_shooting_state:
         lda #0
-        sta shoot_marker_x
-        sta shoot_marker_y
         sta shot_roll
         sta shot_power
         sta shot_penalty
@@ -455,7 +456,6 @@ update_crosshair_pos:
         bmi ucp_neg_side
         clc
         adc #244            // positive side: carry set if result > 255
-        sta shoot_marker_x
         sta $d000
         bcc ucp_clear_xhi
         lda $d010
@@ -465,7 +465,6 @@ update_crosshair_pos:
 ucp_neg_side:
         clc
         adc #244            // negative side: result always < 256
-        sta shoot_marker_x
         sta $d000
 ucp_clear_xhi:
         lda $d010
@@ -475,7 +474,6 @@ ucp_y:
         lda #90
         clc
         adc shoot_elev      // range 60..120; ignore carry
-        sta shoot_marker_y
         sta $d001
         rts
 
@@ -684,10 +682,15 @@ rsr_damage_player:
         sec
         lda ship_repair_points
         sbc damage_lo
+        sta ship_repair_points
+        lda ship_repair_points+1
+        sbc damage_hi
+        sta ship_repair_points+1
         bcs rsr_repair_ok
         lda #0
-rsr_repair_ok:
         sta ship_repair_points
+        sta ship_repair_points+1
+rsr_repair_ok:
 
         lda damage_lo
         lsr
@@ -732,8 +735,6 @@ crosshair_sprite:
 
 shoot_elev: .byte 0         // -30..+30  (IELEVA equivalent)
 shoot_side: .byte 0         // -50..+50  (ISIDE equivalent)
-shoot_marker_x: .byte 0
-shoot_marker_y: .byte 0
 shot_own_marker_x: .byte 0
 shot_own_marker_y: .byte 0
 shot_enemy_marker_x: .byte 0

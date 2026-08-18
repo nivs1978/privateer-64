@@ -106,7 +106,7 @@ draw_intro_prompt_down:
         jsr $ffd2
         ldx #0
 draw_intro_prompt_text:
-        lda intro_prompt_text,x
+        lda press_any_key_msg,x
         beq draw_intro_prompt_done
         jsr $ffd2
         inx
@@ -174,6 +174,7 @@ charset_copy_page:
         cli
 
         // Patch custom Danish glyphs: [=AE, \=OE, ]=AA (Danish AE/OE/AA; screen codes 27/28/29).
+        // Also patch ^=right arrow (screen code 30); _ keeps its default left-arrow glyph.
         ldy #0
 charset_patch_ae:
         lda char_ae,y
@@ -197,6 +198,22 @@ charset_patch_aa:
         iny
         cpy #8
         bne charset_patch_aa
+
+        ldy #0
+charset_patch_right_arrow:
+        lda char_right_arrow,y
+        sta CHAR_SLOT_RIGHT_ARROW_ADDR,y
+        iny
+        cpy #8
+        bne charset_patch_right_arrow
+
+        ldy #0
+charset_patch_harbour_ship:
+        lda char_harbour_ship,y
+        sta CHAR_SLOT_HARBOUR_SHIP_ADDR,y
+        iny
+        cpy #8
+        bne charset_patch_harbour_ship
         rts
 
 copy_1000_bytes:
@@ -219,16 +236,6 @@ copy_tail_232:
         iny
         cpy #232
         bne copy_tail_232
-        rts
-
-wait_frame:
-        bit $d011
-wait_frame_1:
-        bit $d011
-        bpl wait_frame_1
-wait_frame_2:
-        bit $d011
-        bmi wait_frame_2
         rts
 
 init_intro_music:
@@ -409,9 +416,6 @@ intro_f:  .word 0
 intro_last_ti: .byte 0
 intro_tick_acc: .byte 0
 
-intro_prompt_text:
-        .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
-        .byte 0
 
 // Fallback labels so intro code can stay assembled while intro_screen include is disabled.
 //.label intro_screen_data = 0
@@ -421,3 +425,5 @@ intro_prompt_text:
 char_ae:     .byte 63,108,108,127,108,108,111,0
 char_oe:     .byte 60,102,110,126,118,102,60,0
 char_aa:     .byte 24,36,24,60,102,126,102,0
+char_right_arrow: .byte 0,4,6,127,127,6,4,0
+char_harbour_ship: .byte 36,36,36,36,36,255,126,126
