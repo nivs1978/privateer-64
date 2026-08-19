@@ -207,11 +207,7 @@ harbour_buy_generic_apply:
 // Selling: grain, cannons, jewels (share harbour_sell_generic, X = resource index 0..2).
 
 harbour_menu_sell:
-        lda #<harbour_sell_prompt_msg
-        sta src_ptr
-        lda #>harbour_sell_prompt_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(harbour_sell_prompt_msg)
 
 harbour_sell_key:
         jsr read_key_blocking
@@ -307,11 +303,7 @@ harbour_sell_generic_ok:
 // Shared helpers.
 
 harbour_prompt_qty:
-        lda #<harbour_prompt_qty_msg
-        sta src_ptr
-        lda #>harbour_prompt_qty_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(harbour_prompt_qty_msg)
         jsr read_qty_input
         jsr print_newline
         lda harbour_qty_lo
@@ -385,11 +377,7 @@ harbour_show_dont_have:
         jmp harbour_show_message
 
 harbour_show_welcome:
-        lda #<harbour_welcome_prefix_msg
-        sta src_ptr
-        lda #>harbour_welcome_prefix_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(harbour_welcome_prefix_msg)
 
         lda last_harbour_id
         sec
@@ -420,50 +408,16 @@ harbour_check_copenhagen_is_kbh:
         jmp harbour_check_copenhagen_prize_done
 harbour_check_copenhagen_has_pending:
 
-        lda #<harbour_prize_line_1
-        sta src_ptr
-        lda #>harbour_prize_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
+        jsr clear_text_notice_screen
+        pstrnl(harbour_prize_line_1)
+        pstr(harbour_prize_line_2_prefix)
+        pnum(pending_prize_crew_lo)
         jsr print_newline
-        lda #<harbour_prize_line_2_prefix
-        sta src_ptr
-        lda #>harbour_prize_line_2_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda pending_prize_crew_lo
-        sta num_print_lo
-        lda pending_prize_crew_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        jsr print_newline
-        lda #<harbour_prize_line_3
-        sta src_ptr
-        lda #>harbour_prize_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<harbour_prize_line_4_prefix
-        sta src_ptr
-        lda #>harbour_prize_line_4_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda pending_prize_rigsdaler_lo
-        sta num_print_lo
-        lda pending_prize_rigsdaler_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<harbour_prize_line_4_suffix
-        sta src_ptr
-        lda #>harbour_prize_line_4_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<harbour_prize_line_5
-        sta src_ptr
-        lda #>harbour_prize_line_5
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(harbour_prize_line_3)
+        pstr(harbour_prize_line_4_prefix)
+        pnum(pending_prize_rigsdaler_lo)
+        pstrnl(harbour_prize_line_4_suffix)
+        pstr(harbour_prize_line_5)
         jsr print_double_newline
 
         // BASIC 1504: IPOINT = IPOINT + INT(IRGSDPRI/10).
@@ -761,23 +715,17 @@ harbour_print_menu_loop:
         cmp #4
         bne harbour_print_menu_loop
 
-        lda #<harbour_menu_line5
-        sta src_ptr
-        lda #>harbour_menu_line5
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-
-        lda #<harbour_menu_line6
-        sta src_ptr
-        lda #>harbour_menu_line6
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(harbour_menu_line5)
+        pstrnl(harbour_menu_line6)
         rts
 
 // ---------------------------------------------------------------
-// Text.
+// Text.  Relocated into the free gap above the intro-screen asset (BulkData ends
+// at ~$87cf) to keep it out of the code segment, which must end before $4400.
+// Pure data only - no branches cross the gap.  The PC is restored afterwards so
+// map.inc still assembles into the code segment.
+harbour_code_end:
+* = $8800 "HarbourText"
 
 harbour_welcome_prefix_msg:
                         .text "VELKOMMEN TIL "
@@ -830,3 +778,5 @@ harbour_too_many_msg:      .text "DET ER FOR MANGE!"
                             .byte 0
 harbour_dont_have_msg:     .text "S] MANGE HAR DU IKKE!"
                             .byte 0
+
+* = harbour_code_end "HarbourCodeResume"

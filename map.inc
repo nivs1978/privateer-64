@@ -210,11 +210,17 @@ resolve_pixel_move_turn_incremented:
         beq resolve_pixel_move_land
         cmp #MAP_CELL_SEA
         beq resolve_pixel_move_sea
+        cmp #MAP_CELL_CLEARED
+        beq resolve_pixel_move_cleared
 
         jsr position_ship
         lda current_map_cell_type
         jsr on_harbour_entered
         jmp game_loop_wait
+
+resolve_pixel_move_cleared:
+        jsr position_ship
+        jmp resolve_pixel_move_no_event
 
 resolve_pixel_move_sea:
         jsr position_ship
@@ -222,6 +228,7 @@ resolve_pixel_move_sea:
         lda $dc04
         and #$03
         beq resolve_pixel_move_random_event
+resolve_pixel_move_no_event:
         jsr update_map_move_values
         jmp game_loop_wait
 resolve_pixel_move_random_event:
@@ -267,6 +274,13 @@ init_map_navigation:
         // BASIC line 89/102: GOSUB 102 runs once before the voyage starts, setting IDIF=2.
         lda #2
         sta difficulty_level
+        ldx #0
+        lda #0
+init_clear_map_cleared:
+        sta map_cleared_row_masks,x
+        inx
+        cpx #60
+        bne init_clear_map_cleared
         jsr derive_map_cell_from_ship_position
         jsr position_ship
         rts
@@ -355,10 +369,34 @@ map_land_check:
         sta map_query_byte_index
 
         lda #<map_land_row_masks
-        sta src_ptr
-        lda #>map_land_row_masks
-        sta src_ptr+1
+        ldy #>map_land_row_masks
+        jsr set_map_row_ptr
+        ldy map_query_byte_index
+        lda (src_ptr),y
+        and map_query_bit_mask
+        beq map_cell_check_cleared
+        lda #MAP_CELL_LAND
+        rts
 
+map_cell_check_cleared:
+        lda #<map_cleared_row_masks
+        ldy #>map_cleared_row_masks
+        jsr set_map_row_ptr
+        ldy map_query_byte_index
+        lda (src_ptr),y
+        and map_query_bit_mask
+        beq map_cell_is_sea
+        lda #MAP_CELL_CLEARED
+        rts
+
+map_cell_is_sea:
+        lda #MAP_CELL_SEA
+        rts
+
+// src_ptr = A/Y base + (map_query_row - 1) * 4 bytes per row.
+set_map_row_ptr:
+        sta src_ptr
+        sty src_ptr+1
         ldy map_query_row
         dey
         tya
@@ -367,19 +405,28 @@ map_land_check:
         clc
         adc src_ptr
         sta src_ptr
-        bcc map_land_row_ptr_ok
+        bcc set_map_row_ptr_done
         inc src_ptr+1
-map_land_row_ptr_ok:
-
-        ldy map_query_byte_index
-        lda (src_ptr),y
-        and map_query_bit_mask
-        beq map_cell_is_sea
-        lda #MAP_CELL_LAND
+set_map_row_ptr_done:
         rts
 
-map_cell_is_sea:
-        lda #MAP_CELL_SEA
+// BASIC 3000/3080: flag the tile the resolved encounter happened on.
+mark_current_cell_cleared:
+        lda map_ship_row
+        sta map_query_row
+        ldx map_ship_col
+        dex
+        lda map_col_bit_mask,x
+        sta map_query_bit_mask
+        lda map_col_byte_index,x
+        sta map_query_byte_index
+        lda #<map_cleared_row_masks
+        ldy #>map_cleared_row_masks
+        jsr set_map_row_ptr
+        ldy map_query_byte_index
+        lda (src_ptr),y
+        ora map_query_bit_mask
+        sta (src_ptr),y
         rts
 
 on_land_collision:
@@ -424,31 +471,30 @@ random_event_done:
         jsr show_ship
         rts
 
+// Shared tail of both encounter intros: "<title> <name>," followed by the
+// "now you must choose" line.
+print_captain_and_choose:
+        pstr(encounter_title_prefix_msg)
+        jsr print_player_naval_title
+        lda #' '
+        jsr $ffd2
+        jsr print_namebuf_zero_terminated
+        lda #','
+        jsr $ffd2
+        jsr print_newline
+        pstrnl(encounter_choose_msg)
+        rts
+
 run_enemy_encounter_text:
         jsr init_enemy_from_index
 
-        lda #<encounter_lookout_msg
-        sta src_ptr
-        lda #>encounter_lookout_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-
-        lda #<encounter_ship_ahoy_msg
-        sta src_ptr
-        lda #>encounter_ship_ahoy_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(encounter_lookout_msg)
+        pstrnl(encounter_ship_ahoy_msg)
 
         lda enemy_index
         cmp #8
         beq encounter_print_enemy_name
-        lda #<encounter_english_msg
-        sta src_ptr
-        lda #>encounter_english_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(encounter_english_msg)
 
 encounter_print_enemy_name:
         lda enemy_name_ptr_lo
@@ -457,40 +503,14 @@ encounter_print_enemy_name:
         sta src_ptr+1
         jsr print_zero_terminated
 
-        lda #<encounter_in_sight_msg
-        sta src_ptr
-        lda #>encounter_in_sight_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(encounter_in_sight_msg)
         jsr print_double_newline
 
-        lda #<encounter_title_prefix_msg
-        sta src_ptr
-        lda #>encounter_title_prefix_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_player_naval_title
-        lda #' '
-        jsr $ffd2
-        jsr print_namebuf_zero_terminated
-        lda #','
-        jsr $ffd2
-        jsr print_newline
-
-        lda #<encounter_choose_msg
-        sta src_ptr
-        lda #>encounter_choose_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        jsr print_captain_and_choose
 
 encounter_choice_1:
         jsr print_newline
-        lda #<encounter_prompt_fight_flee
-        sta src_ptr
-        lda #>encounter_prompt_fight_flee
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(encounter_prompt_fight_flee)
 
 encounter_choice_1_key:
         jsr read_key_blocking
@@ -510,19 +530,9 @@ encounter_flee_selected:
 encounter_attack_selected:
         jsr clear_text_notice_screen
         jsr print_newline
-        lda #<encounter_prompt_fire_board_1
-        sta src_ptr
-        lda #>encounter_prompt_fire_board_1
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(encounter_prompt_fire_board_1)
         jsr print_newline
-        jsr print_newline
-        lda #<encounter_prompt_fire_board_2
-        sta src_ptr
-        lda #>encounter_prompt_fire_board_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(encounter_prompt_fire_board_2)
         jsr print_newline
         jsr print_newline
         jsr print_newline
@@ -562,63 +572,17 @@ encounter_fire_abort:
         jmp encounter_choice_1
 
 run_fog_event_text:
-        lda #<encounter_lookout_msg
-        sta src_ptr
-        lda #>encounter_lookout_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_line_2
-        sta src_ptr
-        lda #>fog_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_line_3
-        sta src_ptr
-        lda #>fog_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_line_4
-        sta src_ptr
-        lda #>fog_line_4
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_line_5
-        sta src_ptr
-        lda #>fog_line_5
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(encounter_lookout_msg)
+        pstrnl(fog_line_2)
+        pstrnl(fog_line_3)
+        pstrnl(fog_line_4)
+        pstr(fog_line_5)
         jsr print_double_newline
 
-        lda #<encounter_title_prefix_msg
-        sta src_ptr
-        lda #>encounter_title_prefix_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_player_naval_title
-        lda #' '
-        jsr $ffd2
-        jsr print_namebuf_zero_terminated
-        lda #','
-        jsr $ffd2
+        jsr print_captain_and_choose
         jsr print_newline
 
-        lda #<encounter_choose_msg
-        sta src_ptr
-        lda #>encounter_choose_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        jsr print_newline
-
-        lda #<fog_prompt_msg
-        sta src_ptr
-        lda #>fog_prompt_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(fog_prompt_msg)
 
 fog_prompt_key:
         jsr read_key_blocking
@@ -664,35 +628,15 @@ fog_outcome_default:
 
 fog_outcome_nothing:
         jsr clear_text_notice_screen
-        lda #<fog_nothing_line_1
-        sta src_ptr
-        lda #>fog_nothing_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_nothing_line_2
-        sta src_ptr
-        lda #>fog_nothing_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_nothing_line_1)
+        pstrnl(fog_nothing_line_2)
         jsr show_press_any_key
         rts
 
 fog_outcome_enemy:
         jsr clear_text_notice_screen
-        lda #<fog_enemy_line_1
-        sta src_ptr
-        lda #>fog_enemy_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_enemy_line_2
-        sta src_ptr
-        lda #>fog_enemy_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_enemy_line_1)
+        pstrnl(fog_enemy_line_2)
         jsr show_press_any_key
         jsr print_newline
         jsr random_enemy_roll
@@ -702,38 +646,15 @@ fog_outcome_enemy:
 
 fog_outcome_treasure:
         jsr clear_text_notice_screen
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_treasure_line_2
-        sta src_ptr
-        lda #>fog_treasure_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_found_island_msg)
+        pstrnl(fog_treasure_line_2)
         lda #<600
         sta damage_lo
         lda #>600
         sta damage_hi
-        lda #<fog_treasure_line_3
-        sta src_ptr
-        lda #>fog_treasure_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda damage_lo
-        sta num_print_lo
-        lda damage_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<fog_treasure_line_4
-        sta src_ptr
-        lda #>fog_treasure_line_4
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstr(fog_treasure_line_3)
+        pnum(damage_lo)
+        pstrnl(fog_treasure_line_4)
         lda damage_lo
         clc
         adc treasury_rigsdaler
@@ -760,28 +681,10 @@ fog_outcome_jewel:
         adc jewel_count+1
         sta jewel_count+1
 fog_outcome_jewel_msg:
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_jewel_line_2
-        sta src_ptr
-        lda #>fog_jewel_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda damage_lo
-        sta num_print_lo
-        lda damage_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<fog_jewel_line_3
-        sta src_ptr
-        lda #>fog_jewel_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_found_island_msg)
+        pstr(fog_jewel_line_2)
+        pnum(damage_lo)
+        pstrnl(fog_jewel_line_3)
         jsr show_press_any_key
         rts
 
@@ -791,18 +694,8 @@ fog_outcome_cannon:
         bne fog_outcome_cannon_msg
         inc ship_cannons+1
 fog_outcome_cannon_msg:
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_cannon_line_2
-        sta src_ptr
-        lda #>fog_cannon_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_found_island_msg)
+        pstrnl(fog_cannon_line_2)
         jsr show_press_any_key
         rts
 
@@ -814,22 +707,9 @@ fog_outcome_crew:
         sta damage_lo
         lda #0
         sta damage_hi
-        lda #<fog_jewel_line_2
-        sta src_ptr
-        lda #>fog_jewel_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda damage_lo
-        sta num_print_lo
-        lda damage_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<fog_crew_line_3
-        sta src_ptr
-        lda #>fog_crew_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstr(fog_jewel_line_2)
+        pnum(damage_lo)
+        pstrnl(fog_crew_line_3)
         lda damage_lo
         clc
         adc crew_men
@@ -838,12 +718,7 @@ fog_outcome_crew:
         adc crew_men+1
         sta crew_men+1
 fog_outcome_crew_msg:
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_found_island_msg)
         jsr show_press_any_key
         rts
 
@@ -863,59 +738,22 @@ fog_outcome_grain:
         adc grain_sacks+1
         sta grain_sacks+1
 fog_outcome_grain_msg:
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_jewel_line_2
-        sta src_ptr
-        lda #>fog_jewel_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda damage_lo
-        sta num_print_lo
-        lda damage_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<fog_grain_line_3
-        sta src_ptr
-        lda #>fog_grain_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_found_island_msg)
+        pstr(fog_jewel_line_2)
+        pnum(damage_lo)
+        pstrnl(fog_grain_line_3)
         jsr show_press_any_key
         rts
 
 fog_outcome_plague:
         jsr clear_text_notice_screen
         jsr apply_plague_to_crew
-        lda #<fog_found_island_msg
-        sta src_ptr
-        lda #>fog_found_island_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(fog_found_island_msg)
         lda #' '
         jsr $ffd2
-        lda #<fog_plague_line_1_suffix
-        sta src_ptr
-        lda #>fog_plague_line_1_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_plague_line_2
-        sta src_ptr
-        lda #>fog_plague_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<fog_plague_line_3
-        sta src_ptr
-        lda #>fog_plague_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(fog_plague_line_1_suffix)
+        pstrnl(fog_plague_line_2)
+        pstrnl(fog_plague_line_3)
         jsr show_press_any_key
         rts
 
@@ -941,11 +779,7 @@ boarding_continue:
         ldx #0
         ldy #6
         jsr set_screen_ptr_xy
-        lda #<boarding_battle_line_1
-        sta src_ptr
-        lda #>boarding_battle_line_1
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_battle_line_1)
 
         ldx #0
         ldy #7
@@ -953,103 +787,59 @@ boarding_continue:
         lda enemy_index
         cmp #8
         beq boarding_print_pirate_ship
-        lda #<boarding_enemy_line_prefix
-        sta src_ptr
-        lda #>boarding_enemy_line_prefix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_line_prefix)
         lda enemy_name_ptr_lo
         sta src_ptr
         lda enemy_name_ptr_hi
         sta src_ptr+1
         jsr append_zero_terminated_screen
-        lda #<boarding_enemy_line_suffix
-        sta src_ptr
-        lda #>boarding_enemy_line_suffix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_line_suffix)
         jmp boarding_ship_line_done
 boarding_print_pirate_ship:
-        lda #<boarding_pirate_line
-        sta src_ptr
-        lda #>boarding_pirate_line
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_pirate_line)
 boarding_ship_line_done:
 
         ldx #0
         ldy #8
         jsr set_screen_ptr_xy
-        lda #<boarding_enemy_losses_prefix
-        sta src_ptr
-        lda #>boarding_enemy_losses_prefix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_losses_prefix)
         lda boarding_last_enemy_loss
         sta num_print_lo
         lda #0
         sta num_print_hi
         jsr append_word_decimal_screen
-        lda #<boarding_enemy_losses_suffix
-        sta src_ptr
-        lda #>boarding_enemy_losses_suffix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_losses_suffix)
 
         ldx #0
         ldy #9
         jsr set_screen_ptr_xy
-        lda #<boarding_enemy_remaining_prefix
-        sta src_ptr
-        lda #>boarding_enemy_remaining_prefix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_remaining_prefix)
         lda enemy_crew_lo
         sta num_print_lo
         lda enemy_crew_hi
         sta num_print_hi
         jsr append_word_decimal_screen
-        lda #<boarding_enemy_remaining_suffix
-        sta src_ptr
-        lda #>boarding_enemy_remaining_suffix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_enemy_remaining_suffix)
 
         ldx #0
         ldy #10
         jsr set_screen_ptr_xy
-        lda #<boarding_player_losses_prefix
-        sta src_ptr
-        lda #>boarding_player_losses_prefix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_player_losses_prefix)
         lda boarding_last_player_loss
         sta num_print_lo
         lda #0
         sta num_print_hi
         jsr append_word_decimal_screen
-        lda #<boarding_player_losses_suffix
-        sta src_ptr
-        lda #>boarding_player_losses_suffix
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_player_losses_suffix)
 
         ldx #0
         ldy #12
         jsr set_screen_ptr_xy
-        lda #<boarding_prompt_line_1
-        sta src_ptr
-        lda #>boarding_prompt_line_1
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_prompt_line_1)
         ldx #0
         ldy #13
         jsr set_screen_ptr_xy
-        lda #<boarding_prompt_line_2
-        sta src_ptr
-        lda #>boarding_prompt_line_2
-        sta src_ptr+1
-        jsr append_zero_terminated_screen
+        astr(boarding_prompt_line_2)
 
 boarding_prompt_key:
         jsr read_key_blocking
@@ -1148,13 +938,9 @@ boarding_enemy_monotonic_ok:
         rts
 
 handle_enemy_surrender:
+        jsr mark_current_cell_cleared
         jsr clear_text_notice_screen
-        lda #<surrender_line_1
-        sta src_ptr
-        lda #>surrender_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(surrender_line_1)
 
         // BASIC line 3010: IPOINT = IPOINT + INT(enemy rigsdaler / 10).
         // This reward is granted for every victory, before choosing sink or prize.
@@ -1208,62 +994,22 @@ surrender_score_divide_done:
         inc grain_sacks+1
 
 surrender_show_loot:
-        lda #<surrender_loot_rgsd_prefix
-        sta src_ptr
-        lda #>surrender_loot_rgsd_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda enemy_rgsd_lo
-        sta num_print_lo
-        lda enemy_rgsd_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<surrender_loot_rgsd_suffix
-        sta src_ptr
-        lda #>surrender_loot_rgsd_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstr(surrender_loot_rgsd_prefix)
+        pnum(enemy_rgsd_lo)
+        pstrnl(surrender_loot_rgsd_suffix)
 
-        lda #<surrender_loot_rgsd_prefix
-        sta src_ptr
-        lda #>surrender_loot_rgsd_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda enemy_crew_lo
-        sta num_print_lo
-        lda enemy_crew_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<surrender_loot_men_suffix
-        sta src_ptr
-        lda #>surrender_loot_men_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstr(surrender_loot_rgsd_prefix)
+        pnum(enemy_crew_lo)
+        pstrnl(surrender_loot_men_suffix)
 
-        lda #<surrender_loot_rgsd_prefix
-        sta src_ptr
-        lda #>surrender_loot_rgsd_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(surrender_loot_rgsd_prefix)
         lda enemy_grain
         sta num_print_lo
         lda #0
         sta num_print_hi
         jsr print_inline_word_decimal
-        lda #<surrender_loot_grain_suffix
-        sta src_ptr
-        lda #>surrender_loot_grain_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<surrender_loot_take_line
-        sta src_ptr
-        lda #>surrender_loot_take_line
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(surrender_loot_grain_suffix)
+        pstrnl(surrender_loot_take_line)
         jsr print_newline
 
         // Required prize crew = 5 + floor(enemy crew / 2), matching BASIC flow.
@@ -1281,57 +1027,17 @@ surrender_show_loot:
         adc #0
         sta damage_hi
 
-        lda #<surrender_prize_need_line_1
-        sta src_ptr
-        lda #>surrender_prize_need_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<surrender_prize_need_line_2_prefix
-        sta src_ptr
-        lda #>surrender_prize_need_line_2_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda damage_lo
-        sta num_print_lo
-        lda damage_hi
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<surrender_prize_need_line_2_suffix
-        sta src_ptr
-        lda #>surrender_prize_need_line_2_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<surrender_prize_have_prefix
-        sta src_ptr
-        lda #>surrender_prize_have_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda crew_men
-        sta num_print_lo
-        lda crew_men+1
-        sta num_print_hi
-        jsr print_inline_word_decimal
-        lda #<surrender_prize_have_suffix
-        sta src_ptr
-        lda #>surrender_prize_have_suffix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(surrender_prize_need_line_1)
+        pstr(surrender_prize_need_line_2_prefix)
+        pnum(damage_lo)
+        pstrnl(surrender_prize_need_line_2_suffix)
+        pstr(surrender_prize_have_prefix)
+        pnum(crew_men)
+        pstrnl(surrender_prize_have_suffix)
         jsr print_newline
 
-        lda #<surrender_line_2
-        sta src_ptr
-        lda #>surrender_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<surrender_line_3
-        sta src_ptr
-        lda #>surrender_line_3
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(surrender_line_2)
+        pstr(surrender_line_3)
 
 surrender_prize_key:
         jsr read_key_blocking
@@ -1353,6 +1059,32 @@ surrender_sink:
         lda crew_men+1
         adc enemy_crew_hi
         sta crew_men+1
+        // BASIC 3080: the ship holds 500 hands; anything over goes to the sharks.
+        lda crew_men+1
+        cmp #>500
+        bcc surrender_sink_done
+        bne surrender_sink_overflow
+        lda crew_men
+        cmp #<500
+        bcc surrender_sink_done
+        beq surrender_sink_done
+surrender_sink_overflow:
+        sec
+        lda crew_men
+        sbc #<500
+        sta damage_lo
+        lda crew_men+1
+        sbc #>500
+        sta damage_hi
+        lda #<500
+        sta crew_men
+        lda #>500
+        sta crew_men+1
+        jsr print_newline
+        pstr(sharks_prefix_msg)
+        pnum(damage_lo)
+        pstrnl(sharks_suffix_msg)
+surrender_sink_done:
         rts
 
 surrender_prize:
@@ -1387,11 +1119,7 @@ surrender_prize_no_bonus:
 
         jsr print_newline
         jsr print_newline
-        lda #<surrender_prize_sailing_line
-        sta src_ptr
-        lda #>surrender_prize_sailing_line
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(surrender_prize_sailing_line)
         rts
 
 init_enemy_from_index:
@@ -1583,11 +1311,7 @@ crew_loss_done:
         rts
 
 show_press_any_key:
-        lda #<press_any_key_msg
-        sta src_ptr
-        lda #>press_any_key_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(press_any_key_msg)
 
 show_press_any_key_wait:
         jsr $ffe4
@@ -1613,8 +1337,9 @@ check_survival_return:
 check_survival_sink:
         jmp ship_sank
 
-// BASIC lines 1170-1171: win when the score reaches its target or the
-// current voyage reaches its turn target. This runs before hazards or upkeep.
+// BASIC lines 1170-1171: the point goal promotes you (1170 -> 6100), but the
+// turn limit is a deadline - 1171 calls 6000, which ends with RETURN 5020 and
+// so never comes back. This runs before hazards or upkeep.
 check_victory_conditions:
         lda player_points+1
         cmp point_limit+1
@@ -1628,10 +1353,12 @@ check_victory_turn_limit:
         lda voyage_turn_counter+1
         cmp turn_limit+1
         bcc check_victory_not_yet
-        bne player_won_stage
+        bne player_out_of_turns
         lda voyage_turn_counter
         cmp turn_limit
         bcc check_victory_not_yet
+player_out_of_turns:
+        jmp voyage_deadline_lost
 player_won_stage:
         jmp show_victory_and_advance
 check_victory_not_yet:
@@ -1643,30 +1370,12 @@ show_victory_and_advance:
         jsr hide_ship
         jsr configure_intro_vic_bank
         jsr prepare_text_notice_screen
-        lda #<victory_msg
-        sta src_ptr
-        lda #>victory_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstr(victory_msg)
         jsr print_double_newline
-        lda #<victory_received_msg
-        sta src_ptr
-        lda #>victory_received_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<victory_flaskepost_msg
-        sta src_ptr
-        lda #>victory_flaskepost_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(victory_received_msg)
+        pstr(victory_flaskepost_msg)
         jsr print_double_newline
-        lda #<victory_komtesse_msg
-        sta src_ptr
-        lda #>victory_komtesse_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(victory_komtesse_msg)
 
         inc difficulty_level
         inc difficulty_level
@@ -1684,46 +1393,27 @@ victory_title_indices_done:
         jmp victory_final_win
 
 victory_still_climbing:
-        lda #<victory_next_climb_msg
-        sta src_ptr
-        lda #>victory_next_climb_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<victory_next_goal_prefix
-        sta src_ptr
-        lda #>victory_next_goal_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_player_noble_title
-        jsr print_namebuf_zero_terminated
-        lda #'!'
-        jsr $ffd2
-        jsr print_newline
+        pstrnl(victory_next_climb_msg)
+        pstr(victory_next_goal_prefix)
+        jsr print_noble_title_and_name
         jsr show_press_any_key
         jmp victory_still_climbing_done
 
 // BASIC lines 6103-6104: reaching admiral/kronprins ends the game in victory.
 victory_final_win:
-        lda #<victory_final_line_1
-        sta src_ptr
-        lda #>victory_final_line_1
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-        lda #<victory_final_line_2
-        sta src_ptr
-        lda #>victory_final_line_2
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
+        pstrnl(victory_final_line_1)
+        pstrnl(victory_final_line_2)
+        jsr print_noble_title_and_name
+        jsr show_press_any_key
+        jmp return_to_basic
+
+// "<noble title> <name>!" plus newline - shared by both victory endings.
+print_noble_title_and_name:
         jsr print_player_noble_title
         jsr print_namebuf_zero_terminated
         lda #'!'
         jsr $ffd2
-        jsr print_newline
-        jsr show_press_any_key
-        jmp return_to_basic
+        jmp print_newline
 
 victory_still_climbing_done:
         // IPOINTLIM = IPOINT + 500 + 250 * IDIF.
@@ -1817,43 +1507,32 @@ ship_sank:
         sta $d020
         jsr configure_intro_vic_bank
         jsr prepare_text_notice_screen
-        lda #<ship_sank_msg
-        sta src_ptr
-        lda #>ship_sank_msg
-        sta src_ptr+1
-        jsr print_zero_terminated
+        pstrnl(ship_sank_msg)
+        jmp end_game_summary
+
+// BASIC 6000-6002: running out of turns loses the Komtesse, and you go over the
+// side. 6000 ends with RETURN 5020, so it drops straight into the end summary.
+voyage_deadline_lost:
+        jsr hide_ship
+        lda #6
+        sta $d020
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
+        pstrnl(deadline_sorrow_msg)
+        pstrnl(deadline_komtesse_msg)
+        pstrnl(deadline_wedding_msg)
+        pstrnl(deadline_groom_msg)
         jsr print_newline
-        lda crew_men
-        sta num_print_lo
-        lda crew_men+1
-        sta num_print_hi
-        lda #<ship_sank_men_prefix
-        sta src_ptr
-        lda #>ship_sank_men_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_inline_word_decimal
-        lda #<ship_sank_rep_prefix
-        sta src_ptr
-        lda #>ship_sank_rep_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        lda ship_repair_points
-        sta num_print_lo
-        lda ship_repair_points+1
-        sta num_print_hi
-        jsr print_inline_word_decimal
+        pstrnl(deadline_overboard_msg)
+
+end_game_summary:
+        pstr(ship_sank_men_prefix)
+        pnum(crew_men)
+        pstr(ship_sank_rep_prefix)
+        pnum(ship_repair_points)
         jsr print_newline
-        lda player_points
-        sta num_print_lo
-        lda player_points+1
-        sta num_print_hi
-        lda #<ship_sank_score_prefix
-        sta src_ptr
-        lda #>ship_sank_score_prefix
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_inline_word_decimal
+        pstr(ship_sank_score_prefix)
+        pnum(player_points)
         jsr print_newline
         jsr show_press_any_key
         jmp return_to_basic
@@ -2030,60 +1709,32 @@ draw_map_status_table:
         sta bmp_char_col
         lda #21
         sta bmp_char_row
-        lda #<map_label_trk
-        sta src_ptr
-        lda #>map_label_trk
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_trk)
         lda #14
         sta bmp_char_col
-        lda #<map_label_rgsdl
-        sta src_ptr
-        lda #>map_label_rgsdl
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_rgsdl)
         lda #27
         sta bmp_char_col
-        lda #<map_label_korn
-        sta src_ptr
-        lda #>map_label_korn
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_korn)
         // Row 23: three label cells, no pipe chars
         lda #1
         sta bmp_char_col
         lda #23
         sta bmp_char_row
-        lda #<map_label_maend
-        sta src_ptr
-        lda #>map_label_maend
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_maend)
         lda #14
         sta bmp_char_col
-        lda #<map_label_skyts
-        sta src_ptr
-        lda #>map_label_skyts
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_skyts)
         lda #27
         sta bmp_char_col
-        lda #<map_label_rep
-        sta src_ptr
-        lda #>map_label_rep
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_rep)
         jsr update_map_bmp_values
         // Row 0, col 2: POINT label + value (load only; points change via events)
         lda #2
         sta bmp_char_col
         lda #0
         sta bmp_char_row
-        lda #<map_label_point
-        sta src_ptr
-        lda #>map_label_point
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_label_point)
         lda #' '                    // separator space before value
         jsr draw_bmp_char
         inc bmp_char_col
@@ -2097,49 +1748,29 @@ draw_map_status_table:
         // Row 0, col 16: goal display (M]L: x P] y TR[K)
         lda #16
         sta bmp_char_col
-        lda #<map_goal_prefix
-        sta src_ptr
-        lda #>map_goal_prefix
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_goal_prefix)
         lda point_limit
         sta num_print_lo
         lda point_limit+1
         sta num_print_hi
         jsr print_bmp_decimal
-        lda #<map_goal_mid
-        sta src_ptr
-        lda #>map_goal_mid
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_goal_mid)
         lda turn_limit
         sta num_print_lo
         lda turn_limit+1
         sta num_print_hi
         jsr print_bmp_decimal
-        lda #<map_goal_suffix
-        sta src_ptr
-        lda #>map_goal_suffix
-        sta src_ptr+1
-        jsr print_bmp_string
+        bstr(map_goal_suffix)
         rts
 
 // Update only the two values that change during navigation.
 update_map_move_values:
         ldx #6
         ldy #21
-        lda voyage_turn_counter
-        sta num_print_lo
-        lda voyage_turn_counter+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(voyage_turn_counter)
         ldx #33
         ldy #23
-        lda ship_repair_points
-        sta num_print_lo
-        lda ship_repair_points+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(ship_repair_points)
         lda #' '                    // clear cell right of last digit in case REP shrank
         jsr draw_bmp_char
         rts
@@ -2149,93 +1780,49 @@ update_map_bmp_values:
         // TR[K (voyage_turn_counter)
         ldx #6
         ldy #21
-        lda voyage_turn_counter
-        sta num_print_lo
-        lda voyage_turn_counter+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(voyage_turn_counter)
         // RGSDL
         ldx #20
         ldy #21
-        lda treasury_rigsdaler
-        sta num_print_lo
-        lda treasury_rigsdaler+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(treasury_rigsdaler)
         // KORN
         ldx #33
         ldy #21
-        lda grain_sacks
-        sta num_print_lo
-        lda grain_sacks+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(grain_sacks)
         // M[ND
         ldx #6
         ldy #23
-        lda crew_men
-        sta num_print_lo
-        lda crew_men+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(crew_men)
         // SKYTS
         ldx #20
         ldy #23
-        lda ship_cannons
-        sta num_print_lo
-        lda ship_cannons+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(ship_cannons)
         // REP
         ldx #33
         ldy #23
-        lda ship_repair_points
-        sta num_print_lo
-        lda ship_repair_points+1
-        sta num_print_hi
-        jsr print_bmp_stat_word
+        bnum(ship_repair_points)
         rts
 
 draw_fight_status_table:
         ldx #0
         ldy #20
-        lda #<fight_status_border_top
-        sta src_ptr
-        lda #>fight_status_border_top
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(fight_status_border_top)
 
         ldx #0
         ldy #21
-        lda #<fight_status_row_1
-        sta src_ptr
-        lda #>fight_status_row_1
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(fight_status_row_1)
 
         ldx #0
         ldy #22
-        lda #<fight_status_border_middle
-        sta src_ptr
-        lda #>fight_status_border_middle
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(fight_status_border_middle)
 
         ldx #0
         ldy #23
-        lda #<fight_status_row_2
-        sta src_ptr
-        lda #>fight_status_row_2
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(fight_status_row_2)
 
         ldx #0
         ldy #24
-        lda #<fight_status_border_bottom
-        sta src_ptr
-        lda #>fight_status_border_bottom
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(fight_status_border_bottom)
 
         jsr update_fight_status_values
         rts
@@ -2244,56 +1831,32 @@ update_fight_status_values:
         // TR[ K
         ldx #7
         ldy #21
-        lda voyage_turn_counter
-        sta num_print_lo
-        lda voyage_turn_counter+1
-        sta num_print_hi
-        jsr print_fight_word_stat
+        fnum(voyage_turn_counter)
 
         // RGSDL
-        lda treasury_rigsdaler
-        sta num_print_lo
-        lda treasury_rigsdaler+1
-        sta num_print_hi
         ldx #20
         ldy #21
-        jsr print_fight_word_stat
+        fnum(treasury_rigsdaler)
 
         // KORN
-        lda grain_sacks
-        sta num_print_lo
-        lda grain_sacks+1
-        sta num_print_hi
         ldx #33
         ldy #21
-        jsr print_fight_word_stat
+        fnum(grain_sacks)
 
         // M[ND
-        lda crew_men
-        sta num_print_lo
-        lda crew_men+1
-        sta num_print_hi
         ldx #7
         ldy #23
-        jsr print_fight_word_stat
+        fnum(crew_men)
 
         // SKYTS
-        lda ship_cannons
-        sta num_print_lo
-        lda ship_cannons+1
-        sta num_print_hi
         ldx #20
         ldy #23
-        jsr print_fight_word_stat
+        fnum(ship_cannons)
 
         // REP
-        lda ship_repair_points
-        sta num_print_lo
-        lda ship_repair_points+1
-        sta num_print_hi
         ldx #31
         ldy #23
-        jsr print_fight_word_stat
+        fnum(ship_repair_points)
         rts
 
 print_fight_byte_stat:
@@ -2513,6 +2076,88 @@ print_zero_terminated_loop:
         iny
         bne print_zero_terminated_loop
 print_zero_terminated_done:
+        rts
+
+// Inline-argument string printers - see the pstr/pstrnl macros in constants.inc.
+// The string address sits in the two bytes right after the JSR; fetch_inline_str_arg
+// reads it via the stacked return address and skips past it before returning.
+print_str_inline:
+        jsr fetch_inline_str_arg
+        jmp print_zero_terminated
+
+print_str_inline_nl:
+        jsr fetch_inline_str_arg
+        jsr print_zero_terminated
+        jmp print_newline
+
+// Same idea for the very common "copy a 16-bit variable into num_print_lo/hi and
+// print it" sequence - 5 bytes per call site instead of 13.
+print_var_decimal:
+        jsr fetch_inline_str_arg
+        jsr load_num_print_from_src_ptr
+        jmp print_inline_word_decimal
+
+print_bmp_stat_var:
+        jsr fetch_inline_str_arg
+        jsr load_num_print_from_src_ptr
+        jmp print_bmp_stat_word
+
+print_fight_stat_var:
+        jsr fetch_inline_str_arg
+        jsr load_num_print_from_src_ptr
+        jmp print_fight_word_stat
+
+// Note: every inline-argument entry point must call fetch_inline_str_arg directly -
+// it reads the caller's return address at a fixed stack depth.
+load_num_print_from_src_ptr:
+        sty inline_saved_y
+        ldy #0
+        lda (src_ptr),y
+        sta num_print_lo
+        iny
+        lda (src_ptr),y
+        sta num_print_hi
+        ldy inline_saved_y
+        rts
+
+append_str_inline:
+        jsr fetch_inline_str_arg
+        jmp append_zero_terminated_screen
+
+write_str_inline:
+        jsr fetch_inline_str_arg
+        jmp write_zero_terminated_screen
+
+print_bmp_str_inline:
+        jsr fetch_inline_str_arg
+        jmp print_bmp_string
+
+fetch_inline_str_arg:
+        // X/Y must survive: several inline-argument targets take X=column, Y=row.
+        // Stash them in zero page rather than on the stack, which tsx has to index.
+        stx inline_saved_x
+        sty inline_saved_y
+        // Stack from $0101,x: own return address, then the caller's (= inline arg - 1).
+        tsx
+        lda $0103,x
+        sta inline_arg_ptr
+        lda $0104,x
+        sta inline_arg_ptr+1
+        ldy #1
+        lda (inline_arg_ptr),y
+        sta src_ptr
+        iny
+        lda (inline_arg_ptr),y
+        sta src_ptr+1
+        lda inline_arg_ptr
+        clc
+        adc #2
+        sta $0103,x
+        lda inline_arg_ptr+1
+        adc #0
+        sta $0104,x
+        ldx inline_saved_x
+        ldy inline_saved_y
         rts
 
 copy_len_bytes:
@@ -2749,6 +2394,11 @@ map_land_row_masks:
         .byte $00,$04,$F0,$01
         .byte $00,$00,$F0,$00
 
+// One bit per column, same 4-byte row stride as map_land_row_masks. Set by
+// mark_current_cell_cleared, wiped at the start of every voyage.
+map_cleared_row_masks:
+        .fill 60, 0
+
 // Program code ends comfortably before $4400 (VIC bank 1 screen RAM, shared
 // with the map's bitmap-mode colour screen); relocate the remaining pure text
 // data into the unused gap between the ship/crosshair sprites ($5000-$50ff)
@@ -2828,6 +2478,20 @@ ship_sank_men_prefix:   .text "M[ND: "
 ship_sank_rep_prefix:   .text "  REP: "
                         .byte 0
 ship_sank_score_prefix: .text "DU FIK "
+                        .byte 0
+deadline_sorrow_msg:    .text "DET ER MED SORG, VI MEDDELER, AT"
+                        .byte 0
+deadline_komtesse_msg:  .text "KOMTESSE JULIE KNOKKELFRYD"
+                        .byte 0
+deadline_wedding_msg:   .text "IDAG FEJRER SIT BRYLLUP MED"
+                        .byte 0
+deadline_groom_msg:     .text "DEN VELB]RNE TULLEMAN GYLLEBORG!"
+                        .byte 0
+deadline_overboard_msg: .text "AF SORG HEROVER, HOPPER DU I HAVET!"
+                        .byte 0
+sharks_prefix_msg:      .text "DU SMIDER"
+                        .byte 0
+sharks_suffix_msg:      .text "MAND UD TIL HAJERNE!"
                         .byte 0
 victory_msg:            .text "TILLYKKE!!!!"
                         .byte 0

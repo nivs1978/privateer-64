@@ -1,5 +1,10 @@
 // Canonical assembler asset for intro screen (screen/color RAM).
 // Not regenerated during normal assembler builds.
+// Lives in the otherwise unused $8000-$8fff gap (above the map bitmap's VIC
+// bank, below MapArt at $9000) to keep 2000 bytes out of the code segment,
+// which must end before $4400. CPU-copied at runtime, so it needs no VIC visibility.
+* = $8000 "BulkData"
+
 intro_screen_data:
     .byte $EC,$E2,$E2,$E2,$E2,$E2,$E2,$E2,$E2,$E2,$E2,$FB,$A0,$A0,$A0,$A0
     .byte $A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0,$A0

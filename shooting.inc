@@ -230,55 +230,35 @@ upd_fld_clr_loop:
         cpx #7
         bne upd_fld_clr
 
-        lda shoot_dist_lo
-        sta num_print_lo
-        lda shoot_dist_hi
-        sta num_print_hi
         ldx #6
         ldy #17
-        jsr print_fight_word_stat
+        fnum(shoot_dist_lo)
 
         lda ship_cannons
         ldx #14
         ldy #19
         jsr print_fight_byte_stat
 
-        lda crew_men
-        sta num_print_lo
-        lda crew_men+1
-        sta num_print_hi
         ldx #14
         ldy #21
-        jsr print_fight_word_stat
+        fnum(crew_men)
 
-        lda ship_repair_points
-        sta num_print_lo
-        lda ship_repair_points+1
-        sta num_print_hi
         ldx #14
         ldy #23
-        jsr print_fight_word_stat
+        fnum(ship_repair_points)
 
         lda enemy_cannons_lo
         ldx #27
         ldy #19
         jsr print_fight_byte_stat
 
-        lda enemy_crew_lo
-        sta num_print_lo
-        lda enemy_crew_hi
-        sta num_print_hi
         ldx #27
         ldy #21
-        jsr print_fight_word_stat
+        fnum(enemy_crew_lo)
 
-        lda enemy_ship_hp_lo
-        sta num_print_lo
-        lda enemy_ship_hp_hi
-        sta num_print_hi
         ldx #27
         ldy #23
-        jsr print_fight_word_stat
+        fnum(enemy_ship_hp_lo)
 
         ldx #3
         ldy #20
@@ -717,11 +697,7 @@ rsr_player_crew_ok:
 show_shot_prompt:
         ldx #17
         ldy #15
-        lda #<shooting_press_key_msg
-        sta src_ptr
-        lda #>shooting_press_key_msg
-        sta src_ptr+1
-        jsr write_zero_terminated_screen
+        wstr(shooting_press_key_msg)
         rts
 
 // Crosshair sprite: vertical line at pixel 11, horizontal at row 10 (24x21 singlecolor).
@@ -750,6 +726,12 @@ shot_marker_msg:
 shooting_press_key_msg:
         .text "TRYK EN TAST          "
         .byte 0
+
+// 2000 bytes of pure screen/colour data, relocated to the free $c000 block so it
+// does not eat into the code segment (which must end before $4400).
+// CPU-copied at runtime, so it needs no VIC visibility.
+shooting_code_end:
+* = $c000 "ShootingScreenData"
 
 // 25 rows x 40 bytes of screen RAM codes (direct copy to $4400).
 shooting_screen_data:
@@ -806,3 +788,5 @@ shooting_color_data:
         .byte 15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15
         .byte 15,15,15,15,15,14,15,15,15,15,14,14,15,14,14,14,14,14,14,14,14,14,14,14,14,15,15,15,15,14,14,14,14,14,14,14,14,14,14,15
         .byte 15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15
+
+* = shooting_code_end "ShootingCodeResume"

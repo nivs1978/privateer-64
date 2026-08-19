@@ -34,41 +34,20 @@ done:
         jsr $ffd2
         lda #$05        // white text
         jsr $ffd2
-        lda #13
-        jsr $ffd2
-        lda #13
-        jsr $ffd2
-        
-        ldx #0
-prtask: lda askstr,x
-        beq prtask_done
-        jsr $ffd2
-        inx
-        bne prtask
-prtask_done:
-        lda #13
-        jsr $ffd2
-        lda #13
-        jsr $ffd2
+        jsr print_double_newline
+
+        pstr(askstr)
+        jsr print_double_newline
 
         // Build-time diagnostic: bytes still free before code would reach into
         // $4400 (VIC bank 1 screen RAM), so an overlap regression is easy to spot.
-        ldx #0
-prtmem: lda freememstr,x
-        beq prtmem_done
-        jsr $ffd2
-        inx
-        bne prtmem
-prtmem_done:
+        pstr(freememstr)
         lda #<($4400 - code_segment_end)
         sta num_print_lo
         lda #>($4400 - code_segment_end)
         sta num_print_hi
         jsr print_inline_word_decimal
-        lda #13
-        jsr $ffd2
-        lda #13
-        jsr $ffd2
+        jsr print_double_newline
 
         // CHROUT clear can overwrite pointer bytes in the active screen's pointer table.
         jsr set_sprite_pointers_intro
@@ -76,13 +55,7 @@ prtmem_done:
         jsr position_ship
         jsr show_ship
 
-        ldx #0
-prthvad:lda hvadstr,x
-        beq prthvad_done
-        jsr $ffd2
-        inx
-        bne prthvad
-prthvad_done:
+        pstr(hvadstr)
 
         lda #0
         sta $cc         // enable cursor blink
@@ -274,7 +247,6 @@ ship_sprites:
         .byte $00,$00,$00,$00,$00,$00,$00,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$03
 
-        .import source "intro_screen.inc"
         .import source "intro.inc"
         .import source "shooting.inc"
         .import source "harbour_sailing.inc"
@@ -283,6 +255,9 @@ ship_sprites:
         // BASIC ROM window), and anything imported after it would be linked into
         // that ROM-shadowed range and fail to execute at runtime.
         .import source "harbour.inc"
-
         .import source "map.inc"
+
+        // Imported last: it relocates the PC to the free $8000-$8fff gap, so it
+        // must not be followed by anything that belongs in the code segment.
+        .import source "intro_screen.inc"
 

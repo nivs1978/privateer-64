@@ -35,6 +35,51 @@
 .label len_lo = $f9
 .label len_hi = $fa
 .label bmp_char_ptr = $f7   // charset read pointer for draw_bmp_char (2 bytes: $f7=lo, $f8=hi)
+.label inline_arg_ptr = $02 // scratch for the inline-argument print helpers ($02-$05 are unused by KERNAL)
+.label inline_saved_x = $04
+.label inline_saved_y = $05
+
+// Print a zero-terminated string whose address is stored inline after the JSR.
+// 5 bytes per call site instead of the 11-byte lda/sta src_ptr preamble.
+.macro pstr(addr) {
+        jsr print_str_inline
+        .word addr
+}
+// Same, followed by a newline (replaces an extra 3-byte jsr print_newline).
+.macro pstrnl(addr) {
+        jsr print_str_inline_nl
+        .word addr
+}
+// Print the 16-bit variable at `addr` in decimal, address stored inline after the JSR.
+.macro pnum(addr) {
+        jsr print_var_decimal
+        .word addr
+}
+// Append a string to the screen buffer at the current set_screen_ptr_xy position.
+.macro astr(addr) {
+        jsr append_str_inline
+        .word addr
+}
+// Write a string to the screen buffer at the current set_screen_ptr_xy position.
+.macro wstr(addr) {
+        jsr write_str_inline
+        .word addr
+}
+// Draw a string into the map bitmap at bmp_char_col/bmp_char_row.
+.macro bstr(addr) {
+        jsr print_bmp_str_inline
+        .word addr
+}
+// Draw the 16-bit variable at `addr` into the map bitmap stat field at X=col, Y=row.
+.macro bnum(addr) {
+        jsr print_bmp_stat_var
+        .word addr
+}
+// Write the 16-bit variable at `addr` into the fight status field at X=col, Y=row.
+.macro fnum(addr) {
+        jsr print_fight_stat_var
+        .word addr
+}
 
 .const MAP_GRID_COL_MIN = 1
 .const MAP_GRID_COL_MAX = 29
@@ -55,4 +100,8 @@
 
 .const MAP_CELL_SEA = 0
 .const MAP_CELL_LAND = 1
+// BASIC 3000/3080 write IMAP(IX/10,IY/10)=50 once an encounter there is resolved.
+// The value matters only in that it matches nothing else the move handler tests,
+// so the tile stays passable but never rolls another random event.
+.const MAP_CELL_CLEARED = 50
 .const MAP_HARBOUR_COUNT = 7
