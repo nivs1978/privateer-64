@@ -1,17 +1,12 @@
+Original game in KAPER.BAS
+
 Priority 1: Cannon battle mini-game fidelity
-- Factor distance (shoot_dist_lo/hi, BASIC IAFST) into the hit formula in resolve_shot_round - it is generated/displayed but currently unused. BASIC 2740 derives IAFV from IAFST, elevation and wind, and 2860-2880 uses its sign to decide short/over/hit.
-- Add the wind deflection and difficulty tolerance that decide where the shot lands: IRET (BASIC 2630, from wind strength, wind direction and aim) tested against IGRP (2780-2790, tolerance shrinks from 2 to 0 as IDIF rises) at 2800-2830.
-- Add a multi-splash miss animation (BASIC 2650-2740 ICKX/ICKY array) instead of the single hit/miss marker; the splash count derives from the damage actually taken that round.
 - Add the enemy ship sinking animation (BASIC 3030-3070) for the IAKTREP<15 outcome - the ship graphic is redrawn progressively lower until it disappears.
 - Rework the cannon and boarding damage formulas to use IDIF/IKAMP/ILOSE-equivalent ratios instead of flat random rolls, matching BASIC 2600-2940 and 3120-3160. IKAMP (encounters entered, 1840/2440) and ILOSE (times fled, 1890) are not tracked at all yet.
 
 Priority 2: Boarding and surrender presentation
 - Add the boarding approach animation (BASIC 3350-3400): both ships are drawn, then the player's ship is stepped upward toward the enemy until they meet. Guarded by IBIGL/IBOARD at 3110 so it plays once per encounter and only when the gunnery screen was entered first.
 - Add the striking of the colours on surrender (BASIC 1990-2020 and 2950-2990): a flagpole carrying the enemy ensign - Union Jack (JACK) for the English ships, Jolly Roger (JOLLY) when IIF=8 - with the flag sliding down the pole before being erased. BASIC only draws the pole when IDIF>4 (1970).
-
-Priority 3: End states and rule-complete resource checks
-- Sink the ship when treasury/crew/cannons/grain exceed their weight limits (BASIC 960-963 and 6200-6490: rigsdaler>30000, crew>500, cannons>150, grain>700), each with its own cause-of-death line.
-- Add the grain upkeep/consumption drain per turn (BASIC 1175: `KORN=KORN-(MAND*(IDIF/800))`, and when it hits zero you lose a tenth of the crew). Grain currently only changes via harbour trade and loot.
 
 Priority 4: Sound
 - No in-game audio exists; the SID is only touched by the intro tune in intro.inc. BASIC has effects for running aground (1225), harbour collision (1730), fleeing (1890), cannon fire (2260-2270), shot splashes (2680), the fog event (2470), boarding (3100), enemy surrender and sinking (2950/3050), death (1755-1780) and promotion (6100).

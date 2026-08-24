@@ -487,20 +487,81 @@ redraw_shooting_view:
 draw_shot_markers:
         // Original pixel effects: own (IXPL,IYPL), enemy (IAKTX,IAKTY).
         // These coordinates are their character-cell equivalents.
+        lda shot_marker_is_splash
+        beq draw_shot_markers_hit
+        lda #<shot_splash_marker_msg
+        sta src_ptr
+        lda #>shot_splash_marker_msg
+        sta src_ptr+1
+        jmp draw_shot_markers_draw
+draw_shot_markers_hit:
         lda #<shot_marker_msg
         sta src_ptr
         lda #>shot_marker_msg
         sta src_ptr+1
+draw_shot_markers_draw:
+        lda shot_marker_is_splash
+        beq draw_shot_markers_landing
+        jsr draw_shot_splashes
+draw_shot_markers_landing:
         ldx shot_own_marker_x
         ldy shot_own_marker_y
         jsr draw_shot_marker_at
         ldx shot_enemy_marker_x
         ldy shot_enemy_marker_y
+        jsr draw_shot_marker_at
+        rts
+
 draw_shot_marker_at:
+        stx shot_marker_draw_x
+        sty shot_marker_draw_y
         jsr write_zero_terminated_screen
+
+        ldy shot_marker_draw_y
+        lda screen_row_addr_lo,y
+        sta dst_ptr
+        lda screen_row_addr_hi,y
+        clc
+        adc #$94
+        sta dst_ptr+1
+        lda shot_marker_draw_x
+        clc
+        adc dst_ptr
+        sta dst_ptr
+        bcc draw_shot_marker_color_ptr_ok
+        inc dst_ptr+1
+draw_shot_marker_color_ptr_ok:
+        ldy #0
+        lda #1
+        sta (dst_ptr),y
+        rts
+
+draw_shot_splashes:
+        lda shot_splash_count
+        sta shot_splash_remaining
+        beq draw_shot_splashes_done
+draw_shot_splashes_loop:
+        // BASIC ICKX=20..129, ICKY=70..89: the player's lower-left frame.
+        // Converted to screen cells, keep the asterisks in columns 3..16
+        // and rows 9..12, inside the player's frame.
+        jsr random_mod_16
+        and #$0d
+        clc
+        adc #3
+        tax
+        jsr random_mod_8
+        and #$03
+        clc
+        adc #9
+        tay
+        jsr draw_shot_marker_at
+        dec shot_splash_remaining
+        bne draw_shot_splashes_loop
+draw_shot_splashes_done:
         rts
 
 resolve_shot_round:
+        jsr sound_cannon
         jsr random_mod_16
         sta shot_roll
 
@@ -540,48 +601,124 @@ rsr_elev_abs_done:
         sbc shot_penalty
         sta shot_power
 
-        cmp #8
-        bcs rsr_hit
+        jsr calculate_shot_deflection
 
-        // User-facing panel coordinates are one-based. Screen coordinates are zero-based:
-        // own: columns 4..13, rows 2..5; enemy: columns 4..14, rows 8..11.
-        lda shoot_side
-        bmi rsr_miss_left
-        lda #13
-        sta shot_own_marker_x
-        lda #14
-        sta shot_enemy_marker_x
-        jmp rsr_miss_x_done
-rsr_miss_left:
-        lda #4
-        sta shot_own_marker_x
-        lda #4
-        sta shot_enemy_marker_x
-rsr_miss_x_done:
+        // BASIC line 2740: IAFV = IAFST - (700 + (ISTYRKE * IVINDL) - (10 * IELEVA) + rnd-rnd).
+        // A positive value means the shot went over; below -50 means it fell short.
+        lda shoot_dist_lo
+        sec
+        sbc #<700
+        sta shot_dist_error_lo
+        lda shoot_dist_hi
+        sbc #>700
+        sta shot_dist_error_hi
+
         lda shoot_elev
-        bmi rsr_miss_high
-        lda #5
-        sta shot_own_marker_y
-        lda #11
-        sta shot_enemy_marker_y
-        jmp rsr_damage_player
-rsr_miss_high:
-        lda #2
-        sta shot_own_marker_y
-        lda #8
-        sta shot_enemy_marker_y
+        bmi rsr_dist_elev_neg
+rsr_dist_elev_pos:
+        ldx shoot_elev
+        beq rsr_dist_elev_done
+rsr_dist_elev_pos_loop:
+        clc
+        lda shot_dist_error_lo
+        adc #10
+        sta shot_dist_error_lo
+        bcc rsr_dist_elev_pos_no_carry
+        inc shot_dist_error_hi
+rsr_dist_elev_pos_no_carry:
+        dex
+        bne rsr_dist_elev_pos_loop
+        jmp rsr_dist_elev_done
+rsr_dist_elev_neg:
+        eor #$ff
+        clc
+        adc #1
+        tax
+        beq rsr_dist_elev_done
+rsr_dist_elev_neg_loop:
+        sec
+        lda shot_dist_error_lo
+        sbc #10
+        sta shot_dist_error_lo
+        bcs rsr_dist_elev_neg_no_borrow
+        dec shot_dist_error_hi
+rsr_dist_elev_neg_no_borrow:
+        dex
+        bne rsr_dist_elev_neg_loop
+rsr_dist_elev_done:
+
+        // IVINDL is -10, 0, or +10 for wind from above, calm, or below.
+        // IAFV subtracts the wind term, so upward wind adds to IAFV and
+        // downward wind subtracts from it.
+        lda shoot_wind_ver
+        beq rsr_dist_wind_up
+        cmp #2
+        bne rsr_dist_wind_done
+        ldx shoot_wind_str
+rsr_dist_wind_down_loop:
+        beq rsr_dist_wind_done
+        sec
+        lda shot_dist_error_lo
+        sbc #10
+        sta shot_dist_error_lo
+        bcs rsr_dist_wind_down_no_borrow
+        dec shot_dist_error_hi
+rsr_dist_wind_down_no_borrow:
+        dex
+        jmp rsr_dist_wind_down_loop
+rsr_dist_wind_up:
+        ldx shoot_wind_str
+rsr_dist_wind_up_loop:
+        beq rsr_dist_wind_done
+        clc
+        lda shot_dist_error_lo
+        adc #10
+        sta shot_dist_error_lo
+        bcc rsr_dist_wind_up_no_carry
+        inc shot_dist_error_hi
+rsr_dist_wind_up_no_carry:
+        dex
+        jmp rsr_dist_wind_up_loop
+rsr_dist_wind_done:
+
+        // BASIC INT(50*RND) - INT(50*RND), applied inside the parentheses.
+        jsr rsr_random_50
+        sta shot_roll
+        sec
+        lda shot_dist_error_lo
+        sbc shot_roll
+        sta shot_dist_error_lo
+        bcs rsr_dist_noise_sub_no_borrow
+        dec shot_dist_error_hi
+rsr_dist_noise_sub_no_borrow:
+        jsr rsr_random_50
+        sta shot_roll
+        clc
+        lda shot_dist_error_lo
+        adc shot_roll
+        sta shot_dist_error_lo
+        bcc rsr_dist_noise_add_no_carry
+        inc shot_dist_error_hi
+rsr_dist_noise_add_no_carry:
+
+        jsr classify_and_mark_shot_landing
+        lda shot_landing_y
+        cmp #1
+        bne rsr_miss
+        lda shot_landing_x
+        cmp #1
+        bne rsr_miss
+        jmp rsr_hit
+rsr_miss:
+        jsr sound_splash
+        lda #1
+        sta shot_marker_is_splash
         jmp rsr_damage_player
 
 rsr_hit:
         // Centered impacts for the character-cell vessel panels.
-        lda #9
-        sta shot_own_marker_x
-        lda #3
-        sta shot_own_marker_y
-        lda #9
-        sta shot_enemy_marker_x
-        lda #9
-        sta shot_enemy_marker_y
+        lda #0
+        sta shot_marker_is_splash
 
         lda shot_power
         clc
@@ -621,6 +758,12 @@ rsr_enemy_hp_ok:
         sta enemy_crew_lo
         sta enemy_crew_hi
 rsr_enemy_crew_ok:
+        lda enemy_crew_hi
+        ora enemy_crew_lo
+        beq rsr_enemy_defeated
+        lda enemy_ship_hp_hi
+        ora enemy_ship_hp_lo
+        beq rsr_enemy_defeated
 
         lda shot_power
         lsr
@@ -636,6 +779,8 @@ rsr_check_enemy_crew:
         lda enemy_crew_hi
         ora enemy_crew_lo
         bne rsr_check_enemy_hp
+rsr_enemy_defeated:
+        jsr sound_surrender
         jsr handle_enemy_surrender
         lda #2
         sta battle_return_to_main_choice
@@ -645,10 +790,7 @@ rsr_check_enemy_hp:
         lda enemy_ship_hp_hi
         ora enemy_ship_hp_lo
         bne rsr_damage_player
-        jsr handle_enemy_surrender
-        lda #2
-        sta battle_return_to_main_choice
-        rts
+        jmp rsr_enemy_defeated
 
 rsr_damage_player:
         jsr random_mod_8
@@ -658,6 +800,13 @@ rsr_damage_player:
         sta damage_lo
         lda #0
         sta damage_hi
+
+        lda damage_lo
+        cmp #11
+        bcc rsr_splash_count_ok
+        lda #10
+rsr_splash_count_ok:
+        sta shot_splash_count
 
         sec
         lda ship_repair_points
@@ -694,6 +843,206 @@ rsr_player_crew_ok:
         jsr check_ship_survival
         rts
 
+rsr_random_50:
+        jsr random_mod_64
+        cmp #50
+        bcs rsr_random_50
+        rts
+
+classify_and_mark_shot_landing:
+        lda #1
+        sta shot_landing_y
+        lda shot_dist_error_hi
+        bpl classify_landing_high
+        lda shot_dist_error_lo
+        cmp #$ce
+        bcs classify_landing_x
+        lda #2
+        sta shot_landing_y
+        jmp classify_landing_x
+classify_landing_high:
+        lda #0
+        sta shot_landing_y
+classify_landing_x:
+        lda #1
+        sta shot_landing_x
+        lda shot_iret
+        bpl classify_landing_iret_positive
+        eor #$ff
+        clc
+        adc #1
+        cmp shot_hit_tolerance
+        bcc classify_landing_markers
+        beq classify_landing_markers
+        lda #2
+        sta shot_landing_x
+        jmp classify_landing_markers
+classify_landing_iret_positive:
+        cmp shot_hit_tolerance
+        bcc classify_landing_markers
+        beq classify_landing_markers
+        lda #0
+        sta shot_landing_x
+classify_landing_markers:
+        jmp set_enemy_impact_marker
+
+set_enemy_impact_marker:
+        // Present the BASIC landing result as two synchronized 3x3 grids:
+        // upper-left enemy frame (IXPL/IYPL) and right aim frame (IAKTX/IAKTY).
+        // The lower-left own frame is reserved for the multi-splash batch.
+        lda shot_landing_x
+        cmp #1
+        beq set_enemy_impact_center_x
+        cmp #2
+        beq set_enemy_impact_right_x
+        lda #4
+        sta shot_own_marker_x
+        lda #23
+        sta shot_enemy_marker_x
+        jmp set_enemy_impact_y
+set_enemy_impact_right_x:
+        lda #16
+        sta shot_own_marker_x
+        lda #35
+        sta shot_enemy_marker_x
+        jmp set_enemy_impact_y
+set_enemy_impact_center_x:
+        lda #10
+        sta shot_own_marker_x
+        lda #28
+        sta shot_enemy_marker_x
+set_enemy_impact_y:
+        lda shot_landing_y
+        cmp #1
+        beq set_enemy_impact_center_y
+        cmp #2
+        beq set_enemy_impact_low
+        lda #3
+        sta shot_own_marker_y
+        lda #5
+        sta shot_enemy_marker_y
+        rts
+set_enemy_impact_center_y:
+        lda #4
+        sta shot_own_marker_y
+        lda #6
+        sta shot_enemy_marker_y
+        rts
+set_enemy_impact_low:
+        lda #5
+        sta shot_own_marker_y
+        lda #7
+        sta shot_enemy_marker_y
+        rts
+
+calculate_shot_deflection:
+        // BASIC 2630: IRET = wind drift + random drift - (ISIDE / 5).
+        // Wind direction is -10, 0, or +10; the scaled terms are kept in
+        // the same small signed range as the original integer calculation.
+        lda shoot_wind_hor
+        beq calc_deflection_left
+        cmp #2
+        beq calc_deflection_right
+        lda #0
+        sta shot_iret
+        jmp calc_deflection_side
+calc_deflection_left:
+        lda shoot_wind_str
+        eor #$ff
+        clc
+        adc #1
+        sta shot_iret
+        jsr calc_deflection_random_left
+        jmp calc_deflection_side
+calc_deflection_right:
+        lda shoot_wind_str
+        sta shot_iret
+        jsr calc_deflection_random_right
+calc_deflection_side:
+        lda shoot_side
+        bpl calc_deflection_side_positive
+        eor #$ff
+        clc
+        adc #1
+calc_deflection_side_positive:
+        jsr signed_divide_by_five
+        sta shot_roll
+        lda shoot_side
+        bpl calc_deflection_sub_side
+        lda shot_iret
+        clc
+        adc shot_roll
+        sta shot_iret
+        jmp calc_deflection_done
+calc_deflection_sub_side:
+        lda shot_iret
+        sec
+        sbc shot_roll
+        sta shot_iret
+calc_deflection_done:
+        lda shot_iret
+        bmi calc_deflection_clamp_negative
+        cmp #21
+        bcc calc_deflection_tolerance
+        lda #20
+        sta shot_iret
+        jmp calc_deflection_tolerance
+calc_deflection_clamp_negative:
+        lda shot_iret
+        cmp #$ec
+        bcs calc_deflection_tolerance
+        lda #$ec
+        sta shot_iret
+calc_deflection_tolerance:
+        lda #2
+        sta shot_hit_tolerance
+        lda difficulty_level
+        cmp #5
+        bcc calc_deflection_done_tolerance
+        lda #1
+        sta shot_hit_tolerance
+        lda difficulty_level
+        cmp #7
+        bcc calc_deflection_done_tolerance
+        lda #0
+        sta shot_hit_tolerance
+calc_deflection_done_tolerance:
+        rts
+
+calc_deflection_random_left:
+        jsr random_mod_8
+        and #1
+        beq calc_deflection_random_done
+        lda shot_iret
+        sec
+        sbc #1
+        sta shot_iret
+calc_deflection_random_done:
+        rts
+
+calc_deflection_random_right:
+        jsr random_mod_8
+        and #1
+        beq calc_deflection_random_done
+        lda shot_iret
+        clc
+        adc #1
+        sta shot_iret
+        rts
+
+signed_divide_by_five:
+        ldx #0
+calc_divide_by_five_loop:
+        cmp #5
+        bcc calc_divide_by_five_done
+        sec
+        sbc #5
+        inx
+        jmp calc_divide_by_five_loop
+calc_divide_by_five_done:
+        txa
+        rts
+
 show_shot_prompt:
         ldx #17
         ldy #15
@@ -715,12 +1064,27 @@ shot_own_marker_x: .byte 0
 shot_own_marker_y: .byte 0
 shot_enemy_marker_x: .byte 0
 shot_enemy_marker_y: .byte 0
+shot_marker_is_splash: .byte 0
+shot_splash_count: .byte 0
+shot_splash_remaining: .byte 0
+shot_landing_x: .byte 0
+shot_landing_y: .byte 0
+shot_marker_draw_x: .byte 0
+shot_marker_draw_y: .byte 0
+shot_iret: .byte 0
+shot_hit_tolerance: .byte 0
+shot_dist_error_lo: .byte 0
+shot_dist_error_hi: .byte 0
 shot_roll: .byte 0
 shot_power: .byte 0
 shot_penalty: .byte 0
 
 shot_marker_msg:
         .text "X"
+        .byte 0
+
+shot_splash_marker_msg:
+        .text "*"
         .byte 0
 
 shooting_press_key_msg:

@@ -106,6 +106,8 @@ game_loop:
 game_loop_wait:
         jsr $ffe4
         beq game_loop_wait
+        cmp #137
+        beq game_toggle_sound
         cmp #17
         beq game_try_move_down
         cmp #145
@@ -114,6 +116,10 @@ game_loop_wait:
         beq game_try_move_right
         cmp #157
         beq game_try_move_left
+        jmp game_loop_wait
+
+game_toggle_sound:
+        jsr sound_toggle
         jmp game_loop_wait
 
 game_try_move_up:
@@ -199,6 +205,8 @@ resolve_pixel_move:
         inc voyage_turn_counter+1
 resolve_pixel_move_turn_incremented:
         jsr check_victory_conditions
+        jsr apply_grain_upkeep
+        jsr check_resource_limits
         jsr derive_map_cell_from_ship_position
 
         ldx map_ship_col
@@ -244,6 +252,7 @@ resolve_pixel_move_land:
         sta ship_y
         jsr position_ship
         jsr on_land_collision
+        jsr update_map_move_values
         jmp game_loop_wait
 
 init_map_navigation:
@@ -257,6 +266,8 @@ init_map_navigation:
         lda #0
         sta voyage_turn_counter
         sta voyage_turn_counter+1
+        sta grain_upkeep_remainder
+        sta grain_upkeep_remainder+1
         sta ship_collision_counter
         lda #<200
         sta ship_repair_points
@@ -268,6 +279,36 @@ init_map_navigation:
         sta pending_prize_crew_hi
         sta pending_prize_rigsdaler_lo
         sta pending_prize_rigsdaler_hi
+        sta ship_sank_cause_lo
+        sta ship_sank_cause_hi
+        sta jewel_count
+        sta jewel_count+1
+        sta player_points
+        sta player_points+1
+        lda #<200
+        sta crew_men
+        lda #>200
+        sta crew_men+1
+        lda #<600
+        sta treasury_rigsdaler
+        lda #>600
+        sta treasury_rigsdaler+1
+        lda #<30
+        sta grain_sacks
+        lda #>30
+        sta grain_sacks+1
+        lda #<20
+        sta ship_cannons
+        lda #>20
+        sta ship_cannons+1
+        lda #<1000
+        sta point_limit
+        lda #>1000
+        sta point_limit+1
+        lda #<300
+        sta turn_limit
+        lda #>300
+        sta turn_limit+1
         lda #1
         sta player_naval_title_index
         sta player_noble_title_index
@@ -430,6 +471,7 @@ mark_current_cell_cleared:
         rts
 
 on_land_collision:
+        jsr sound_grounded
         inc ship_collision_counter
         sec
         lda ship_repair_points
@@ -465,6 +507,7 @@ random_event_fog_branch:
         jsr run_fog_event_text
 
 random_event_done:
+        jsr check_resource_limits
         jsr draw_map
         jsr load_ship_sprites
         jsr sync_ship_to_grid_position
@@ -525,6 +568,7 @@ encounter_choice_1_key:
         jmp encounter_choice_1_key
 
 encounter_flee_selected:
+        jsr sound_flee
         rts
 
 encounter_attack_selected:
@@ -572,6 +616,7 @@ encounter_fire_abort:
         jmp encounter_choice_1
 
 run_fog_event_text:
+        jsr sound_fog
         pstrnl(encounter_lookout_msg)
         pstrnl(fog_line_2)
         pstrnl(fog_line_3)
@@ -774,6 +819,8 @@ boarding_round:
         bcs boarding_continue
         jmp boarding_enemy_low
 boarding_continue:
+        // Started here so a first-round win or loss is not preceded by a clipped tune.
+        jsr sound_boarding
         jsr clear_boarding_text_area
 
         ldx #0
@@ -1038,6 +1085,7 @@ surrender_show_loot:
 
         pstrnl(surrender_line_2)
         pstr(surrender_line_3)
+        jsr sound_surrender
 
 surrender_prize_key:
         jsr read_key_blocking
@@ -1318,6 +1366,17 @@ show_press_any_key_wait:
         beq show_press_any_key_wait
         rts
 
+// End screen: drop keys buffered during the fight, then wait for RETURN only.
+show_press_enter:
+        pstr(press_enter_msg)
+        lda #0
+        sta $c6
+show_press_enter_wait:
+        jsr $ffe4
+        cmp #13
+        bne show_press_enter_wait
+        rts
+
 // BASIC line 5000: die if crew_men <= 10 or ship_repair_points <= 20.
 // Resets the stack and jumps to ship_sank if either threshold is breached.
 check_ship_survival:
@@ -1336,6 +1395,207 @@ check_survival_return:
         rts
 check_survival_sink:
         jmp ship_sank
+
+// BASIC line 1175: consume floor(crew * difficulty / 800) grain each turn.
+// If that consumes the remaining grain, lose ceil(crew / 10), matching
+// INT(.9 * MAND) in the original game.
+apply_grain_upkeep:
+        lda #0
+        sta damage_lo
+        sta damage_hi
+        lda grain_upkeep_remainder
+        sta upkeep_old_rem_lo
+        sta damage_lo
+        lda grain_upkeep_remainder+1
+        sta upkeep_old_rem_hi
+        sta damage_hi
+        lda #0
+        sta damage_lo
+        sta damage_hi
+        ldx difficulty_level
+apply_grain_product_loop:
+        cpx #0
+        beq apply_grain_product_done
+        clc
+        lda damage_lo
+        adc crew_men
+        sta damage_lo
+        lda damage_hi
+        adc crew_men+1
+        sta damage_hi
+        dex
+        jmp apply_grain_product_loop
+
+apply_grain_product_done:
+        clc
+        lda damage_lo
+        adc upkeep_old_rem_lo
+        sta damage_lo
+        lda damage_hi
+        adc upkeep_old_rem_hi
+        sta damage_hi
+        lda #0
+        sta target_add_lo
+        sta target_add_hi
+apply_grain_divide_loop:
+        lda damage_hi
+        cmp #>800
+        bcc apply_grain_divide_done
+        bne apply_grain_divide_subtract
+        lda damage_lo
+        cmp #<800
+        bcc apply_grain_divide_done
+apply_grain_divide_subtract:
+        sec
+        lda damage_lo
+        sbc #<800
+        sta damage_lo
+        lda damage_hi
+        sbc #>800
+        sta damage_hi
+        inc target_add_lo
+        bne apply_grain_divide_loop
+        inc target_add_hi
+        jmp apply_grain_divide_loop
+
+apply_grain_divide_done:
+        lda damage_lo
+        sta grain_upkeep_remainder
+        lda damage_hi
+        sta grain_upkeep_remainder+1
+        lda target_add_lo
+        ora target_add_hi
+        beq apply_grain_upkeep_done
+        lda target_add_hi
+        cmp grain_sacks+1
+        bcc apply_grain_subtract
+        bne apply_grain_depleted
+        lda target_add_lo
+        cmp grain_sacks
+        bcc apply_grain_subtract
+        lda grain_upkeep_remainder
+        ora grain_upkeep_remainder+1
+        beq apply_grain_subtract
+apply_grain_depleted:
+        lda #0
+        sta grain_sacks
+        sta grain_sacks+1
+        jsr apply_tenth_crew_loss
+        rts
+apply_grain_subtract:
+        sec
+        lda grain_sacks
+        sbc target_add_lo
+        sta grain_sacks
+        lda grain_sacks+1
+        sbc target_add_hi
+        sta grain_sacks+1
+apply_grain_upkeep_done:
+        rts
+
+// Loss used by BASIC's MAND=INT(.9*MAND): ceil(MAND / 10) is removed.
+apply_tenth_crew_loss:
+        clc
+        lda crew_men
+        adc #9
+        sta crew_work_lo
+        lda crew_men+1
+        adc #0
+        sta crew_work_hi
+        lda #0
+        sta crew_loss_lo
+        sta crew_loss_hi
+apply_tenth_divide_loop:
+        lda crew_work_hi
+        bne apply_tenth_subtract
+        lda crew_work_lo
+        cmp #10
+        bcc apply_tenth_divide_done
+apply_tenth_subtract:
+        sec
+        lda crew_work_lo
+        sbc #10
+        sta crew_work_lo
+        lda crew_work_hi
+        sbc #0
+        sta crew_work_hi
+        inc crew_loss_lo
+        bne apply_tenth_divide_loop
+        inc crew_loss_hi
+        jmp apply_tenth_divide_loop
+apply_tenth_divide_done:
+        sec
+        lda crew_men
+        sbc crew_loss_lo
+        sta crew_men
+        lda crew_men+1
+        sbc crew_loss_hi
+        sta crew_men+1
+        jsr check_ship_survival
+        rts
+
+// BASIC lines 960-963: the ship cannot carry more than these amounts.
+check_resource_limits:
+        lda treasury_rigsdaler+1
+        cmp #>30000
+        bcc check_resource_crew
+        bne resource_sink_treasury
+        lda treasury_rigsdaler
+        cmp #<30000
+        bcc check_resource_crew
+resource_sink_treasury:
+        lda #<resource_treasury_msg
+        sta ship_sank_cause_lo
+        lda #>resource_treasury_msg
+        sta ship_sank_cause_hi
+        jmp ship_sank
+
+check_resource_crew:
+        lda crew_men+1
+        cmp #>500
+        bcc check_resource_cannons
+        bne resource_sink_crew
+        lda crew_men
+        cmp #<500
+        bcc check_resource_cannons
+resource_sink_crew:
+        lda #<resource_crew_msg
+        sta ship_sank_cause_lo
+        lda #>resource_crew_msg
+        sta ship_sank_cause_hi
+        jmp ship_sank
+
+check_resource_cannons:
+        lda ship_cannons+1
+        cmp #>150
+        bcc check_resource_grain
+        bne resource_sink_cannons
+        lda ship_cannons
+        cmp #<150
+        bcc check_resource_grain
+resource_sink_cannons:
+        lda #<resource_cannons_msg
+        sta ship_sank_cause_lo
+        lda #>resource_cannons_msg
+        sta ship_sank_cause_hi
+        jmp ship_sank
+
+check_resource_grain:
+        lda grain_sacks+1
+        cmp #>700
+        bcc check_resource_limits_done
+        bne resource_sink_grain
+        lda grain_sacks
+        cmp #<700
+        bcc check_resource_limits_done
+resource_sink_grain:
+        lda #<resource_grain_msg
+        sta ship_sank_cause_lo
+        lda #>resource_grain_msg
+        sta ship_sank_cause_hi
+        jmp ship_sank
+check_resource_limits_done:
+        rts
 
 // BASIC lines 1170-1171: the point goal promotes you (1170 -> 6100), but the
 // turn limit is a deadline - 1171 calls 6000, which ends with RETURN 5020 and
@@ -1396,6 +1656,7 @@ victory_still_climbing:
         pstrnl(victory_next_climb_msg)
         pstr(victory_next_goal_prefix)
         jsr print_noble_title_and_name
+        jsr sound_promotion
         jsr show_press_any_key
         jmp victory_still_climbing_done
 
@@ -1404,6 +1665,7 @@ victory_final_win:
         pstrnl(victory_final_line_1)
         pstrnl(victory_final_line_2)
         jsr print_noble_title_and_name
+        jsr sound_promotion
         jsr show_press_any_key
         jmp return_to_basic
 
@@ -1508,6 +1770,17 @@ ship_sank:
         jsr configure_intro_vic_bank
         jsr prepare_text_notice_screen
         pstrnl(ship_sank_msg)
+        lda ship_sank_cause_lo
+        ora ship_sank_cause_hi
+        beq ship_sank_no_cause
+        lda ship_sank_cause_lo
+        sta src_ptr
+        lda ship_sank_cause_hi
+        sta src_ptr+1
+        jsr print_zero_terminated
+        jsr print_newline
+ship_sank_no_cause:
+        jsr sound_sink
         jmp end_game_summary
 
 // BASIC 6000-6002: running out of turns loses the Komtesse, and you go over the
@@ -1524,6 +1797,7 @@ voyage_deadline_lost:
         pstrnl(deadline_groom_msg)
         jsr print_newline
         pstrnl(deadline_overboard_msg)
+        jsr sound_sink
 
 end_game_summary:
         pstr(ship_sank_men_prefix)
@@ -1534,13 +1808,22 @@ end_game_summary:
         pstr(ship_sank_score_prefix)
         pnum(player_points)
         jsr print_newline
-        jsr show_press_any_key
-        jmp return_to_basic
+        jsr show_press_enter
+        jsr audio_stop
+        jsr restore_main_vic_bank
+        ldx #$ff
+        txs
+        jmp start
 
 read_key_blocking:
         jsr $ffe4
         beq read_key_blocking
+        cmp #137
+        beq read_key_toggle_sound
         rts
+read_key_toggle_sound:
+        jsr sound_toggle
+        jmp read_key_blocking
 
 print_newline:
         lda #13
@@ -1768,6 +2051,9 @@ update_map_move_values:
         ldx #6
         ldy #21
         bnum(voyage_turn_counter)
+        ldx #33
+        ldy #21
+        bnum(grain_sacks)
         ldx #33
         ldy #23
         bnum(ship_repair_points)
@@ -2111,6 +2397,20 @@ print_fight_stat_var:
 // it reads the caller's return address at a fixed stack depth.
 load_num_print_from_src_ptr:
         sty inline_saved_y
+        lda src_ptr
+        cmp #<grain_sacks
+        bne load_num_print_regular
+        lda src_ptr+1
+        cmp #>grain_sacks
+        bne load_num_print_regular
+        jsr calculate_grain_display_value
+        lda grain_display_value
+        sta num_print_lo
+        lda grain_display_value+1
+        sta num_print_hi
+        ldy inline_saved_y
+        rts
+load_num_print_regular:
         ldy #0
         lda (src_ptr),y
         sta num_print_lo
@@ -2118,6 +2418,30 @@ load_num_print_from_src_ptr:
         lda (src_ptr),y
         sta num_print_hi
         ldy inline_saved_y
+        rts
+
+// Render remaining grain rounded to the nearest whole sack. The stored whole
+// value is the pre-fraction amount; the remainder is fractional grain already
+// consumed, so it must be subtracted for display.
+calculate_grain_display_value:
+        lda grain_sacks
+        sta grain_display_value
+        lda grain_sacks+1
+        sta grain_display_value+1
+        lda grain_upkeep_remainder+1
+        cmp #>400
+        bcc calculate_grain_display_done
+        bne calculate_grain_display_round_down
+        lda grain_upkeep_remainder
+        cmp #<400
+        bcc calculate_grain_display_done
+calculate_grain_display_round_down:
+        lda grain_display_value
+        bne calculate_grain_display_decrement_low
+        dec grain_display_value+1
+calculate_grain_display_decrement_low:
+        dec grain_display_value
+calculate_grain_display_done:
         rts
 
 append_str_inline:
@@ -2330,6 +2654,12 @@ boarding_last_enemy_loss: .byte 0
 battle_return_to_main_choice: .byte 0
 damage_lo: .byte 0
 damage_hi: .byte 0
+grain_upkeep_remainder: .word 0
+upkeep_old_rem_lo: .byte 0
+upkeep_old_rem_hi: .byte 0
+grain_display_value: .word 0
+ship_sank_cause_lo: .byte 0
+ship_sank_cause_hi: .byte 0
 num_print_lo: .byte 0
 num_print_hi: .byte 0
 num_print_started: .byte 0
@@ -2407,6 +2737,8 @@ code_segment_end:
 * = $5100 "HarbourAndMapText"
 press_any_key_msg:      .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
                         .byte 0
+press_enter_msg:        .text "TRYK P] RETURN FOR AT FORTS[TTE!"
+                        .byte 0
 encounter_lookout_msg:  .text "UDKIGGEN MELDER:"
                         .byte 0
 encounter_ship_ahoy_msg:.text "SHIP OH\J!"
@@ -2478,6 +2810,14 @@ ship_sank_men_prefix:   .text "M[ND: "
 ship_sank_rep_prefix:   .text "  REP: "
                         .byte 0
 ship_sank_score_prefix: .text "DU FIK "
+                        .byte 0
+resource_treasury_msg:  .text "DIT SKIB GIK NED: FOR MANGE PENGE!"
+                        .byte 0
+resource_crew_msg:      .text "DIT SKIB GIK NED: FOR MANGE FOLK!"
+                        .byte 0
+resource_cannons_msg:   .text "DIT SKIB GIK NED: FOR MANGE KANONER!"
+                        .byte 0
+resource_grain_msg:     .text "DIT SKIB GIK NED: FOR MEGET KORN!"
                         .byte 0
 deadline_sorrow_msg:    .text "DET ER MED SORG, VI MEDDELER, AT"
                         .byte 0

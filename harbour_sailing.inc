@@ -302,6 +302,7 @@ harbour_sailing_run_done:
                 beq harbour_sailing_no_collision
                 lda #2
                 sta $d020
+                jsr sound_harbour_collision
                 jsr harbour_sailing_apply_damage
                 sec
                 rts

@@ -1,11 +1,5 @@
 .label intro_src_ptr = $fb
 .label intro_dst_ptr = $fd
-.const intro_note_count = 63
-.const intro_sp = 8
-// BASIC used SR=5, but interpreted BASIC overhead made effective playback slower.
-// In machine code we step much faster, so use 1 tick/jiffy for comparable duration.
-.const intro_sr = 1
-.const intro_tick_jiffies = 2
 
 run_intro:
         // BASIC line 5: screen off while intro is prepared
@@ -24,15 +18,17 @@ run_intro:
         jsr configure_intro_vic_bank
         jsr draw_intro_screen
         jsr prepare_intro_charset
-        jsr init_intro_music
+        jsr audio_init
         lda #0
         sta $c6
         lda $d011
         ora #$10
         sta $d011
         jsr draw_intro_prompt
-        lda $a2
-        sta intro_last_ti
+
+        lda #<play_intro_theme
+        ldx #>play_intro_theme
+        jsr audio_play
 
 intro_wait_release:
         jsr $ff9f
@@ -42,33 +38,81 @@ intro_wait_release:
 intro_wait_key:
         jsr $ff9f
         jsr $ffe4
-        bne intro_done
-        lda $a2
-        cmp intro_last_ti
         beq intro_wait_key
-        sta intro_last_ti
-        inc intro_tick_acc
-        lda intro_tick_acc
-        cmp #intro_tick_jiffies
-        bcc intro_wait_key
-        lda #0
-        sta intro_tick_acc
-        ldy #intro_sr
-intro_tick_loop:
-        jsr advance_intro_music
-        dey
-        bne intro_tick_loop
-        jmp intro_wait_key
 
 intro_done:
-        lda #0
-        sta $d404
+        jsr audio_stop
         lda #0
         sta $c6
         lda $d011
         ora #$10
         sta $d011
         rts
+
+// ---------------------------------------------------------------------------
+// Gameplay SID sounds. Voice 1 is reserved for these short, blocking effects;
+// the intro music is stopped before gameplay begins.
+
+sound_toggle:
+        lda sound_enabled
+        eor #1
+        sta sound_enabled
+        beq sound_toggle_off
+        lda #<play_toggle_beep
+        ldx #>play_toggle_beep
+        jmp audio_play
+sound_toggle_off:
+        jmp audio_stop
+
+sound_grounded:
+        lda #<play_grounded
+        ldx #>play_grounded
+        jmp audio_play
+
+sound_harbour_collision:
+        lda #<play_harbour_collision
+        ldx #>play_harbour_collision
+        jmp audio_play
+
+sound_flee:
+        lda #<play_flee
+        ldx #>play_flee
+        jmp audio_play
+
+sound_cannon:
+        lda #<play_cannon
+        ldx #>play_cannon
+        jmp audio_play
+
+sound_splash:
+        lda #<play_splash
+        ldx #>play_splash
+        jmp audio_play
+
+sound_fog:
+        lda #<play_fog_bank_warning
+        ldx #>play_fog_bank_warning
+        jmp audio_play
+
+sound_surrender:
+        lda #<play_boarding_victory
+        ldx #>play_boarding_victory
+        jmp audio_play
+
+sound_sink:
+        lda #<play_ship_sinking
+        ldx #>play_ship_sinking
+        jmp audio_play
+
+sound_boarding:
+        lda #<play_boarding_fight
+        ldx #>play_boarding_fight
+        jmp audio_play
+
+sound_promotion:
+        lda #<play_promotion
+        ldx #>play_promotion
+        jmp audio_play
 
 draw_intro_screen:
         lda #<intro_screen_data
@@ -237,185 +281,6 @@ copy_tail_232:
         cpy #232
         bne copy_tail_232
         rts
-
-init_intro_music:
-        // BASIC 5000-5080
-        lda #15
-        sta $d418
-        lda #0
-        sta $d415
-        sta $d416
-        sta $d417
-        lda #9
-        sta $d405
-        lda #240
-        sta $d406
-        lda #0
-        sta $d402
-        lda #8
-        sta $d403
-        lda #0
-        sta intro_mi
-        sta intro_mt
-        sta intro_mp
-        lda #1
-        sta intro_mg
-        sta intro_ph
-        lda #0
-        sta $d404
-        sta intro_tick_acc
-        rts
-
-advance_intro_music:
-        // BASIC 5100-5210
-        lda intro_mg
-        bne intro_mg_ok
-        rts
-
-intro_mg_ok:
-        lda intro_mt
-        beq intro_after_mt
-        dec intro_mt
-        bne intro_mt_still_active
-        lda intro_ph
-        bne intro_after_mt
-        lda intro_mp
-        beq intro_after_mt
-        lda #0
-        sta $d404
-        lda intro_mp
-        sta intro_mt
-        lda #1
-        sta intro_ph
-intro_mt_still_active:
-        rts
-
-intro_after_mt:
-        lda intro_mt
-        beq intro_after_hold_check
-        rts
-
-intro_after_hold_check:
-        ldx intro_mi
-        cpx #intro_note_count
-        bcc intro_have_note
-        lda #0
-        sta intro_mg
-        sta $d404
-        rts
-
-intro_have_note:
-        lda intro_freq_lo,x
-        sta intro_f
-        lda intro_freq_hi,x
-        sta intro_f+1
-        lda intro_dur,x
-
-        // TT = INT((D + SP - 1) / SP)
-        clc
-        adc #intro_sp-1
-        lsr
-        lsr
-        lsr
-        bne intro_tt_ok
-        lda #1
-intro_tt_ok:
-        sta intro_tt
-
-        inx
-        stx intro_mi
-
-        lda intro_f
-        ora intro_f+1
-        bne intro_play_note
-
-        // Rest note
-        lda #0
-        sta $d404
-        lda intro_tt
-        sta intro_mt
-        lda #0
-        sta intro_mp
-        lda #1
-        sta intro_ph
-        rts
-
-intro_play_note:
-        // MT = INT((TT*3)/4)
-        lda intro_tt
-        sta intro_mt
-        lsr
-        clc
-        adc intro_mt
-        lsr
-        sta intro_mt
-        bne intro_mt_ok
-        lda #1
-        sta intro_mt
-intro_mt_ok:
-
-        // MP = TT - MT
-        lda intro_tt
-        sec
-        sbc intro_mt
-        sta intro_mp
-
-        // F2 = F*4
-        asl intro_f
-        rol intro_f+1
-        asl intro_f
-        rol intro_f+1
-
-        lda intro_f
-        sta $d400
-        lda intro_f+1
-        sta $d401
-        lda #15
-        sta $d418
-        lda #$41
-        sta $d404
-        lda #0
-        sta intro_ph
-        rts
-
-intro_freq_lo:
-        .byte <$1167,<$106d,<$1167,<$08b4,<$0000,<$08b4,<$0d0a,<$0b9d
-        .byte <$0af7,<$0d0a,<$1167,<$0000,<$1167,<$15ed,<$1389,<$1167
-        .byte <$1389,<$09c4,<$09c4,<$1389,<$1167,<$106d,<$09c4,<$0d0a
-        .byte <$09c4,<$0d0a,<$0ea2,<$106d,<$1167,<$1389,<$1167,<$106d
-        .byte <$0ea2,<$0d0a,<$0ea2,<$106d,<$0ea2,<$0d0a,<$0b9d,<$0af7
-        .byte <$0b9d,<$0d0a,<$0b9d,<$0af7,<$09c4,<$08b4,<$09c4,<$08b4
-        .byte <$0837,<$0751,<$0685,<$08b4,<$0837,<$09c4,<$08b4,<$0af7
-        .byte <$09c4,<$0b9d,<$0af7,<$0b9d,<$0af7,<$08b4,<$08b4
-intro_freq_hi:
-        .byte >$1167,>$106d,>$1167,>$08b4,>$0000,>$08b4,>$0d0a,>$0b9d
-        .byte >$0af7,>$0d0a,>$1167,>$0000,>$1167,>$15ed,>$1389,>$1167
-        .byte >$1389,>$09c4,>$09c4,>$1389,>$1167,>$106d,>$09c4,>$0d0a
-        .byte >$09c4,>$0d0a,>$0ea2,>$106d,>$1167,>$1389,>$1167,>$106d
-        .byte >$0ea2,>$0d0a,>$0ea2,>$106d,>$0ea2,>$0d0a,>$0b9d,>$0af7
-        .byte >$0b9d,>$0d0a,>$0b9d,>$0af7,>$09c4,>$08b4,>$09c4,>$08b4
-        .byte >$0837,>$0751,>$0685,>$08b4,>$0837,>$09c4,>$08b4,>$0af7
-        .byte >$09c4,>$0b9d,>$0af7,>$0b9d,>$0af7,>$08b4,>$08b4
-intro_dur:
-        .byte 29,29,57,29,29,57,29,29
-        .byte 29,29,29,29,29,29,29,29
-        .byte 57,57,57,29,29,29,29,29
-        .byte 29,57,29,29,7,7,14,29
-        .byte 29,29,7,7,14,29,29,29
-        .byte 7,7,14,29,29,29,29,29
-        .byte 29,29,29,29,29,29,29,29
-        .byte 29,29,14,14,29,57,57
-
-intro_mi: .byte 0
-intro_mt: .byte 0
-intro_mp: .byte 0
-intro_mg: .byte 0
-intro_ph: .byte 0
-intro_tt: .byte 0
-intro_f:  .word 0
-intro_last_ti: .byte 0
-intro_tick_acc: .byte 0
-
 
 // Fallback labels so intro code can stay assembled while intro_screen include is disabled.
 //.label intro_screen_data = 0

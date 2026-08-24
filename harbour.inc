@@ -73,6 +73,7 @@ on_harbour_entered:
         jsr hide_ship
 
         jsr harbour_check_copenhagen_prize
+        jsr check_resource_limits
         jsr harbour_generate_prices
 
 harbour_menu_loop:

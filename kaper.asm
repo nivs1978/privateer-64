@@ -21,6 +21,9 @@ start:
         and #$ef
         sta $d016
 
+        lda #1
+        sta sound_enabled
+
         // clear screen then print each custom char on its own line
         lda #$93
         jsr $ffd2
@@ -247,6 +250,7 @@ ship_sprites:
         .byte $00,$00,$00,$00,$00,$00,$00,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$03
 
+        .import source "audio.inc"
         .import source "intro.inc"
         .import source "shooting.inc"
         .import source "harbour_sailing.inc"
