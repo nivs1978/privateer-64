@@ -4,6 +4,7 @@
 
 draw_map:
         sei
+        jsr hide_vic_screen
         jsr hide_ship
 
         // MapArt spans into the BASIC ROM window; expose RAM there while copying it.
@@ -99,6 +100,7 @@ draw_map_row_loop:
 
         jsr hide_ship
         jsr draw_map_status_table
+        jsr show_vic_screen
         cli
         rts
 
@@ -910,6 +912,10 @@ boarding_back_to_ship:
         rts
 
 boarding_enemy_low:
+        lda #7
+        ldx #0
+        ldy #6
+        jsr show_surrender_flag
         jsr handle_enemy_surrender
         lda #1
         sta battle_return_to_main_choice
@@ -1279,6 +1285,7 @@ clear_boarding_text_area_col:
         rts
 
 clear_text_notice_screen:
+        jsr hide_vic_screen
         lda #$93
         jsr $ffd2
         lda #$05
@@ -1360,6 +1367,7 @@ crew_loss_done:
 
 show_press_any_key:
         pstr(press_any_key_msg)
+        jsr show_vic_screen
 
 show_press_any_key_wait:
         jsr $ffe4
@@ -1369,6 +1377,7 @@ show_press_any_key_wait:
 // End screen: drop keys buffered during the fight, then wait for RETURN only.
 show_press_enter:
         pstr(press_enter_msg)
+        jsr show_vic_screen
         lda #0
         sta $c6
 show_press_enter_wait:
@@ -1548,7 +1557,7 @@ resource_sink_treasury:
         sta ship_sank_cause_lo
         lda #>resource_treasury_msg
         sta ship_sank_cause_hi
-        jmp ship_sank
+        jmp resource_limit_sank
 
 check_resource_crew:
         lda crew_men+1
@@ -1563,7 +1572,7 @@ resource_sink_crew:
         sta ship_sank_cause_lo
         lda #>resource_crew_msg
         sta ship_sank_cause_hi
-        jmp ship_sank
+        jmp resource_limit_sank
 
 check_resource_cannons:
         lda ship_cannons+1
@@ -1578,7 +1587,7 @@ resource_sink_cannons:
         sta ship_sank_cause_lo
         lda #>resource_cannons_msg
         sta ship_sank_cause_hi
-        jmp ship_sank
+        jmp resource_limit_sank
 
 check_resource_grain:
         lda grain_sacks+1
@@ -1593,7 +1602,7 @@ resource_sink_grain:
         sta ship_sank_cause_lo
         lda #>resource_grain_msg
         sta ship_sank_cause_hi
-        jmp ship_sank
+        jmp resource_limit_sank
 check_resource_limits_done:
         rts
 
@@ -1783,6 +1792,18 @@ ship_sank_no_cause:
         jsr sound_sink
         jmp end_game_summary
 
+// BASIC line 6500: resource limits are a distinct loss screen, then flow into
+// line 5020 for the final totals and RETURN-to-restart prompt.
+resource_limit_sank:
+        jsr hide_ship
+        lda #6
+        sta $d020
+        jsr configure_intro_vic_bank
+        jsr prepare_text_notice_screen
+        pstrnl(resource_limit_sank_msg)
+        jsr sound_sink
+        jmp end_game_summary
+
 // BASIC 6000-6002: running out of turns loses the Komtesse, and you go over the
 // side. 6000 ends with RETURN 5020, so it drops straight into the end summary.
 voyage_deadline_lost:
@@ -1816,6 +1837,7 @@ end_game_summary:
         jmp start
 
 read_key_blocking:
+        jsr show_vic_screen
         jsr $ffe4
         beq read_key_blocking
         cmp #137
@@ -2340,6 +2362,7 @@ print_inline_word_decimal_clear:
 
 prepare_text_notice_screen:
         // Ensure text mode while showing event/harbour notices.
+        jsr hide_vic_screen
         lda $d011
         and #$df
         sta $d011
@@ -2729,6 +2752,236 @@ map_land_row_masks:
 map_cleared_row_masks:
         .fill 60, 0
 
+// BASIC 1990-2020 and 2950-2990: raise the pole, then strike the enemy colours.
+// The blue field of the union jack is the screen background showing through.
+// A = column, X = top row, Y = pole height in rows. Drawn over the current screen.
+show_surrender_flag:
+        sta flag_pole_col
+        stx flag_pole_top_row
+        sty flag_pole_rows
+        jsr draw_flag_pole
+        jsr load_flag_sprites
+        jsr set_sprite_pointers_intro
+
+        lda #0
+        sta $d017
+        sta $d01c
+        sta $d01b
+        lda flag_sprite_mask
+        sta $d01d               // double width so the flag is not square
+        sta $d015
+
+        jsr set_flag_sprite_x
+
+        lda flag_pole_top_row
+        asl
+        asl
+        asl
+        clc
+        adc #50
+        sta flag_y
+        lda flag_pole_top_row
+        clc
+        adc flag_pole_rows
+        sec
+        sbc #3
+        asl
+        asl
+        asl
+        clc
+        adc #50
+        sta flag_bottom_y
+
+flag_anim_loop:
+        lda flag_y
+        sta $d001
+        sta $d003
+        ldx #2
+        jsr flag_wait_frames
+        lda flag_y
+        clc
+        adc #2
+        sta flag_y
+        cmp flag_bottom_y
+        bcc flag_anim_loop
+
+        ldx #40
+        jsr flag_wait_frames
+        lda #0
+        sta $d015
+        sta $d01d
+        rts
+
+// Sprite X is 24 + (column + 1) * 8, which needs the MSB past column 27.
+set_flag_sprite_x:
+        lda #0
+        sta flag_x_hi
+        lda flag_pole_col
+        asl
+        bcc flag_x_b1
+        inc flag_x_hi
+flag_x_b1:
+        asl
+        bcc flag_x_b2
+        inc flag_x_hi
+flag_x_b2:
+        asl
+        bcc flag_x_b3
+        inc flag_x_hi
+flag_x_b3:
+        clc
+        adc #32
+        sta $d000
+        sta $d002
+        bcc flag_x_done
+        inc flag_x_hi
+flag_x_done:
+        lda flag_x_hi
+        beq flag_x_low
+        lda flag_sprite_mask
+        sta $d010
+        rts
+flag_x_low:
+        lda #0
+        sta $d010
+        rts
+
+draw_flag_pole:
+        lda flag_pole_top_row
+        sta flag_row_index
+        lda flag_pole_rows
+        sta flag_rows_left
+        lda #$51                // filled circle forms the truck of the pole
+        sta flag_pole_char
+flag_pole_row:
+        ldx flag_pole_col
+        ldy flag_row_index
+        jsr set_screen_ptr_xy
+        ldy #0
+        lda flag_pole_char
+        sta (dst_ptr),y
+        lda dst_ptr+1
+        clc
+        adc #$94                // screen $4400 -> colour $d800
+        sta dst_ptr+1
+        lda #1
+        sta (dst_ptr),y
+        lda #$5d                // vertical bar for the rest of the pole
+        sta flag_pole_char
+        inc flag_row_index
+        dec flag_rows_left
+        bne flag_pole_row
+        rts
+
+load_flag_sprites:
+        lda enemy_index
+        cmp #8
+        beq load_pirate_flag
+        lda #<flag_gb_red_sprite
+        ldx #>flag_gb_red_sprite
+        ldy #0
+        jsr copy_flag_sprite
+        lda #<flag_gb_white_sprite
+        ldx #>flag_gb_white_sprite
+        ldy #1
+        jsr copy_flag_sprite
+        lda #2
+        sta $d027               // red cross sits on the higher-priority sprite
+        lda #1
+        sta $d028
+        lda #%00000011
+        sta flag_sprite_mask
+        rts
+load_pirate_flag:
+        lda #<flag_pirate_sprite
+        ldx #>flag_pirate_sprite
+        ldy #0
+        jsr copy_flag_sprite
+        lda #1
+        sta $d027
+        lda #%00000001
+        sta flag_sprite_mask
+        rts
+
+// A/X = sprite source, Y = slot 0 or 1 in the bank 1 sprite area.
+copy_flag_sprite:
+        sta src_ptr
+        stx src_ptr+1
+        lda #<SPRITE_DATA_BANK1
+        sta dst_ptr
+        lda #>SPRITE_DATA_BANK1
+        sta dst_ptr+1
+        cpy #0
+        beq copy_flag_bytes
+        clc
+        lda dst_ptr
+        adc #64
+        sta dst_ptr
+        bcc copy_flag_bytes
+        inc dst_ptr+1
+copy_flag_bytes:
+        ldy #62
+copy_flag_loop:
+        lda (src_ptr),y
+        sta (dst_ptr),y
+        dey
+        bpl copy_flag_loop
+        rts
+
+flag_wait_frames:
+        lda $a2
+        sta flag_wait_prev
+flag_wait_same:
+        lda $a2
+        cmp flag_wait_prev
+        beq flag_wait_same
+        sta flag_wait_prev
+        dex
+        bne flag_wait_frames
+        rts
+
+flag_pole_char: .byte 0
+flag_sprite_mask: .byte 0
+flag_y: .byte 0
+flag_bottom_y: .byte 0
+flag_pole_col: .byte 0
+flag_pole_top_row: .byte 0
+flag_pole_rows: .byte 0
+flag_row_index: .byte 0
+flag_rows_left: .byte 0
+flag_wait_prev: .byte 0
+flag_x_hi: .byte 0
+
+flag_gb_red_sprite:
+        .byte $00,$00,$00,$20,$18,$04,$10,$18
+        .byte $08,$08,$18,$10,$04,$18,$20,$02
+        .byte $18,$40,$01,$18,$80,$00,$99,$00
+        .byte $00,$5a,$00,$00,$18,$00,$7f,$ff
+        .byte $fe,$7f,$ff,$fe,$00,$18,$00,$00
+        .byte $5a,$00,$00,$99,$00,$01,$18,$80
+        .byte $02,$18,$40,$04,$18,$20,$08,$18
+        .byte $10,$10,$18,$08,$00,$00,$00,$04
+
+flag_gb_white_sprite:
+        .byte $ff,$ff,$ff,$d8,$00,$0b,$ac,$00
+        .byte $17,$96,$00,$2d,$8b,$00,$59,$85
+        .byte $80,$b1,$82,$c1,$61,$81,$62,$c1
+        .byte $80,$a5,$81,$ff,$e7,$ff,$80,$00
+        .byte $01,$80,$00,$01,$ff,$e7,$ff,$81
+        .byte $a5,$01,$83,$66,$81,$86,$83,$41
+        .byte $8d,$01,$a1,$9a,$00,$d1,$b4,$00
+        .byte $69,$e8,$00,$35,$ff,$ff,$ff,$01
+
+flag_pirate_sprite:
+        .byte $ff,$ff,$ff,$80,$00,$01,$80,$7e
+        .byte $01,$80,$ff,$01,$81,$ff,$81,$81
+        .byte $99,$81,$81,$99,$81,$81,$ff,$81
+        .byte $81,$e7,$81,$80,$7e,$01,$90,$24
+        .byte $09,$b8,$3c,$1d,$98,$3c,$19,$86
+        .byte $00,$61,$81,$e7,$81,$80,$18,$01
+        .byte $80,$e7,$01,$97,$00,$e9,$b8,$00
+        .byte $1d,$90,$00,$09,$ff,$ff,$ff,$0f
+
 // Program code ends comfortably before $4400 (VIC bank 1 screen RAM, shared
 // with the map's bitmap-mode colour screen); relocate the remaining pure text
 // data into the unused gap between the ship/crosshair sprites ($5000-$50ff)
@@ -2803,7 +3056,9 @@ fight_status_row_2:
                         .text "REP:        "
                         .byte 98
                         .byte 0
-ship_sank_msg:          .text "DIT SKIB GIKK NED MED MAND OG MUS!"
+ship_sank_msg:          .text "DIT SKIB GIK NED MED MAND OG MUS!"
+                        .byte 0
+resource_limit_sank_msg:.text "BEKLAGER, DIT SKIB GIK NED!"
                         .byte 0
 ship_sank_men_prefix:   .text "M[ND: "
                         .byte 0
@@ -2923,7 +3178,7 @@ surrender_loot_take_line:
                         .text "DEM TAGER DU!"
                         .byte 0
 surrender_prize_need_line_1:
-                        .text "DETTE SKIB BEH\\VER ET PRISEMANDSKAB"
+                        .text "DETTE SKIB BEH\VER ET PRISEMANDSKAB"
                         .byte 0
 surrender_prize_need_line_2_prefix:
                         .text "P]"
@@ -2971,7 +3226,7 @@ fog_cannon_line_2:      .text "HVOR DER LIGGER EN KANON!"
                         .byte 0
 fog_crew_line_3:        .text "SKIBBRUDNE, SOM TAGER HYRE!"
                         .byte 0
-fog_nothing_line_1:     .text "N\H!"
+fog_nothing_line_1:     .text "N[H!"
                         .byte 0
 fog_nothing_line_2:     .text "DER VAR ALLIGEVEL IKKE NOGET."
                         .byte 0

@@ -7,6 +7,12 @@ start:
         // Intro installs a RAM charset at $1000 after screen/color data has been copied.
 
         jsr load_ship_sprites
+        lda #0
+        sta ship_x
+        lda #12
+        sta ship_x_hi
+        lda #72
+        sta ship_y
 
         lda $dd00
         and #$fc

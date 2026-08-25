@@ -3,9 +3,7 @@
 
 run_intro:
         // BASIC line 5: screen off while intro is prepared
-        lda $d011
-        and #$ef
-        sta $d011
+        jsr hide_vic_screen
 
         // BASIC lines 20/30: intro colors
         lda #14
@@ -21,9 +19,7 @@ run_intro:
         jsr audio_init
         lda #0
         sta $c6
-        lda $d011
-        ora #$10
-        sta $d011
+        jsr show_vic_screen
         jsr draw_intro_prompt
 
         lda #<play_intro_theme
@@ -44,9 +40,7 @@ intro_done:
         jsr audio_stop
         lda #0
         sta $c6
-        lda $d011
-        ora #$10
-        sta $d011
+        jsr show_vic_screen
         rts
 
 // ---------------------------------------------------------------------------
@@ -160,8 +154,21 @@ draw_intro_prompt_done:
         jsr $ffd2
         rts
 
+hide_vic_screen:
+        lda $d011
+        and #$ef
+        sta $d011
+        rts
+
+show_vic_screen:
+        lda $d011
+        ora #$10
+        sta $d011
+        rts
+
 configure_intro_vic_bank:
         // VIC bank 1 ($4000-$7fff), screen $4400, charset $4800.
+        jsr hide_vic_screen
         lda $dd00
         and #$fc
         ora #VIC_BANK1_SELECT

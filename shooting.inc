@@ -4,6 +4,7 @@
 
 run_shooting_minigame:
         // outer on_random_sea_event already set VIC bank 1 text mode at $4400
+        jsr hide_vic_screen
         lda $d011
         and #$df        // ensure BMM cleared (text mode)
         sta $d011
@@ -67,6 +68,7 @@ xhair_copy:
         jsr redraw_shooting_view
         lda #$01
         sta $d015
+        jsr show_vic_screen
 
         lda #0
         sta $c6
@@ -763,7 +765,7 @@ rsr_enemy_crew_ok:
         beq rsr_enemy_defeated
         lda enemy_ship_hp_hi
         ora enemy_ship_hp_lo
-        beq rsr_enemy_defeated
+        beq rsr_enemy_sunk
 
         lda shot_power
         lsr
@@ -780,17 +782,33 @@ rsr_check_enemy_crew:
         ora enemy_crew_lo
         bne rsr_check_enemy_hp
 rsr_enemy_defeated:
+        jsr clear_enemy_ship_surrender_area
+        lda #26
+        ldx #2
+        ldy #9
+        jsr show_surrender_flag
+rsr_enemy_report:
         jsr sound_surrender
         jsr handle_enemy_surrender
         lda #2
         sta battle_return_to_main_choice
         rts
 
+// BASIC 3030-3070: hull destroyed, so the ship sinks before the report.
+// BASIC 2900 jumps past 2950, so a sinking never strikes the colours.
+rsr_enemy_sunk:
+        // Clear the shot markers first so only the ship is left to sink.
+        jsr redraw_shooting_view
+        lda #$00
+        sta $d015
+        jsr sink_enemy_ship
+        jmp rsr_enemy_report
+
 rsr_check_enemy_hp:
         lda enemy_ship_hp_hi
         ora enemy_ship_hp_lo
         bne rsr_damage_player
-        jmp rsr_enemy_defeated
+        jmp rsr_enemy_sunk
 
 rsr_damage_player:
         jsr random_mod_8
@@ -1090,6 +1108,123 @@ shot_splash_marker_msg:
 shooting_press_key_msg:
         .text "TRYK EN TAST          "
         .byte 0
+
+// The sight-panel ship occupies rows 3-9, columns 24-33 of the shooting screen.
+.const SINK_TOP_ROW = 3
+.const SINK_ROWS = 7
+.const SINK_LEFT_COL = 24
+.const SINK_WIDTH = 10
+
+clear_enemy_ship_surrender_area:
+        ldx #SINK_ROWS-1
+clear_enemy_ship_row:
+        lda sink_scr_lo,x
+        sta dst_ptr
+        lda sink_scr_hi,x
+        sta dst_ptr+1
+        ldy #SINK_WIDTH-1
+        lda #$20
+clear_enemy_ship_screen:
+        sta (dst_ptr),y
+        dey
+        bpl clear_enemy_ship_screen
+
+        lda sink_col_lo,x
+        sta dst_ptr
+        lda sink_col_hi,x
+        sta dst_ptr+1
+        ldy #SINK_WIDTH-1
+        lda #$00
+clear_enemy_ship_colour:
+        sta (dst_ptr),y
+        dey
+        bpl clear_enemy_ship_colour
+
+        dex
+        bpl clear_enemy_ship_row
+        rts
+
+sink_enemy_ship:
+        lda #SINK_ROWS
+        sta sink_steps
+sink_step_loop:
+        jsr sink_shift_down
+        jsr sink_wait_half_second
+        dec sink_steps
+        bne sink_step_loop
+        rts
+
+// Each step drops the ship one row; the bottom row goes under and the top blanks.
+sink_shift_down:
+        ldx #SINK_ROWS-1
+sink_row_loop:
+        lda sink_scr_lo,x
+        sta dst_ptr
+        lda sink_scr_hi,x
+        sta dst_ptr+1
+        lda sink_scr_lo-1,x
+        sta src_ptr
+        lda sink_scr_hi-1,x
+        sta src_ptr+1
+        ldy #SINK_WIDTH-1
+sink_copy_screen:
+        lda (src_ptr),y
+        sta (dst_ptr),y
+        dey
+        bpl sink_copy_screen
+
+        lda sink_col_lo,x
+        sta dst_ptr
+        lda sink_col_hi,x
+        sta dst_ptr+1
+        lda sink_col_lo-1,x
+        sta src_ptr
+        lda sink_col_hi-1,x
+        sta src_ptr+1
+        ldy #SINK_WIDTH-1
+sink_copy_colour:
+        lda (src_ptr),y
+        sta (dst_ptr),y
+        dey
+        bpl sink_copy_colour
+
+        dex
+        bne sink_row_loop
+
+        lda sink_scr_lo
+        sta dst_ptr
+        lda sink_scr_hi
+        sta dst_ptr+1
+        ldy #SINK_WIDTH-1
+        lda #$20
+sink_blank_top:
+        sta (dst_ptr),y
+        dey
+        bpl sink_blank_top
+        rts
+
+sink_wait_half_second:
+        lda #15
+        sta sink_delay
+sink_wait_tick:
+        lda $a2
+        sta sink_wait_prev
+sink_wait_same:
+        lda $a2
+        cmp sink_wait_prev
+        beq sink_wait_same
+        sta sink_wait_prev
+        dec sink_delay
+        bne sink_wait_tick
+        rts
+
+sink_scr_lo: .fill SINK_ROWS, <(INTRO_SCREEN_RAM + (SINK_TOP_ROW + i) * 40 + SINK_LEFT_COL)
+sink_scr_hi: .fill SINK_ROWS, >(INTRO_SCREEN_RAM + (SINK_TOP_ROW + i) * 40 + SINK_LEFT_COL)
+sink_col_lo: .fill SINK_ROWS, <($d800 + (SINK_TOP_ROW + i) * 40 + SINK_LEFT_COL)
+sink_col_hi: .fill SINK_ROWS, >($d800 + (SINK_TOP_ROW + i) * 40 + SINK_LEFT_COL)
+sink_steps: .byte 0
+sink_delay: .byte 0
+sink_wait_prev: .byte 0
 
 // 2000 bytes of pure screen/colour data, relocated to the free $c000 block so it
 // does not eat into the code segment (which must end before $4400).
