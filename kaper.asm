@@ -1,3 +1,8 @@
+        // Kaper 64 - Kaptajn Kaper i Kattegat
+        // Original Author: P.O. Frederiksen
+        // Commodore 64 port: Hans Milling
+        // License: GNU General Public License v3.0; see LICENSE in the repository.
+
         BasicUpstart2(start)
         .encoding "petscii_upper"
                 .import source "constants.inc"
