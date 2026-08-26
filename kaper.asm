@@ -146,6 +146,231 @@ shipcopy:
         bne shipcopy
         rts
 
+// Boarding scene: both ships sit in the empty top-right block (rows 0-5), above
+// the fight text which starts at row 6. Sprite X 24 = column 0, Y 50 = row 0.
+.const BOARD_SHIP_A_X = 240         // stationary ship, columns 27-32
+.const BOARD_SHIP_A_Y = 50
+.const BOARD_SHIP_B_START_X = BOARD_SHIP_A_X + 50
+.const BOARD_SHIP_B_START_Y = BOARD_SHIP_A_Y + 50
+.const BOARD_SHIP_B_TARGET_X = BOARD_SHIP_A_X + 8
+.const BOARD_SHIP_B_TARGET_Y = BOARD_SHIP_A_Y + 8
+
+boarding_ship_a_x:          .word BOARD_SHIP_A_X
+boarding_ship_a_y:          .byte BOARD_SHIP_A_Y
+boarding_ship_b_x:          .word BOARD_SHIP_B_START_X
+boarding_ship_b_y:          .byte BOARD_SHIP_B_START_Y
+boarding_ship_step:         .byte 2
+boarding_x:                 .word 0
+boarding_y:                 .byte 0
+boarding_base_slot:         .byte 0
+boarding_sprite_bits:       .byte $01,$02,$04,$08,$10,$20,$40,$80
+
+load_boarding_ship_sprites:
+        lda #$04
+        sta $d025
+        lda #$03
+        sta $d026
+
+        lda #$0f
+        sta $d027
+        sta $d028
+        sta $d029
+        sta $d02a
+        sta $d02b
+        sta $d02c
+        sta $d02d
+        sta $d02e
+
+        lda #$00
+        sta $d010
+        sta $d017
+        sta $d01d
+        sta $d01b
+        lda #$ff
+        sta $d01c
+
+        // Both ships share the same four 24x21 tiles, so sprites 0-3 and 4-7
+        // point at blocks 64-67 ($5000-$50ff). Using eight distinct blocks
+        // would spill into $5100, which holds the relocated text segment.
+        ldx #0
+board_ptr_setup:
+        txa
+        and #$03
+        clc
+        adc #64
+        sta SPRITE_PTR_TAB_BANK1_MAP,x
+        inx
+        cpx #8
+        bne board_ptr_setup
+
+        ldx #0
+board_ship_copy_1:
+        lda large_boarding_ship_1,x
+        sta SPRITE_DATA_BANK1,x
+        inx
+        cpx #64
+        bne board_ship_copy_1
+
+        ldx #0
+board_ship_copy_2:
+        lda large_boarding_ship_2,x
+        sta SPRITE_DATA_BANK1 + 64,x
+        inx
+        cpx #64
+        bne board_ship_copy_2
+
+        ldx #0
+board_ship_copy_3:
+        lda large_boarding_ship_3,x
+        sta SPRITE_DATA_BANK1 + 128,x
+        inx
+        cpx #64
+        bne board_ship_copy_3
+
+        ldx #0
+board_ship_copy_4:
+        lda large_boarding_ship_4,x
+        sta SPRITE_DATA_BANK1 + 192,x
+        inx
+        cpx #64
+        bne board_ship_copy_4
+
+        lda #$ff
+        sta $d015
+        rts
+
+// A = sprite index 0-7, boarding_x/boarding_y = position (X is 16-bit).
+set_boarding_sprite:
+        tay
+        asl
+        tax
+        lda boarding_x
+        sta $d000,x
+        lda boarding_y
+        sta $d001,x
+        lda boarding_sprite_bits,y
+        ldy boarding_x+1
+        bne board_msb_set
+        eor #$ff
+        and $d010
+        sta $d010
+        rts
+board_msb_set:
+        ora $d010
+        sta $d010
+        rts
+
+// A = first sprite index (0 or 4); places a 2x2 ship at boarding_x/boarding_y.
+place_boarding_ship:
+        sta boarding_base_slot
+        jsr set_boarding_sprite
+        lda boarding_x
+        clc
+        adc #24
+        sta boarding_x
+        bcc board_place_tr
+        inc boarding_x+1
+board_place_tr:
+        lda boarding_base_slot
+        clc
+        adc #1
+        jsr set_boarding_sprite
+        lda boarding_y
+        clc
+        adc #21
+        sta boarding_y
+        lda boarding_base_slot
+        clc
+        adc #3
+        jsr set_boarding_sprite
+        lda boarding_x
+        sec
+        sbc #24
+        sta boarding_x
+        bcs board_place_bl
+        dec boarding_x+1
+board_place_bl:
+        lda boarding_base_slot
+        clc
+        adc #2
+        jsr set_boarding_sprite
+        rts
+
+set_boarding_ship_positions:
+        lda boarding_ship_a_x
+        sta boarding_x
+        lda boarding_ship_a_x+1
+        sta boarding_x+1
+        lda boarding_ship_a_y
+        sta boarding_y
+        lda #0
+        jsr place_boarding_ship
+
+        lda boarding_ship_b_x
+        sta boarding_x
+        lda boarding_ship_b_x+1
+        sta boarding_x+1
+        lda boarding_ship_b_y
+        sta boarding_y
+        lda #4
+        jsr place_boarding_ship
+        rts
+
+// Ship B closes in diagonally (left and up) until it overlaps ship A.
+run_boarding_ship_animation:
+        jsr load_boarding_ship_sprites
+        lda #<BOARD_SHIP_B_START_X
+        sta boarding_ship_b_x
+        lda #>BOARD_SHIP_B_START_X
+        sta boarding_ship_b_x+1
+        lda #BOARD_SHIP_B_START_Y
+        sta boarding_ship_b_y
+        jsr set_boarding_ship_positions
+board_anim_loop:
+        lda boarding_ship_b_x
+        cmp #<BOARD_SHIP_B_TARGET_X
+        lda boarding_ship_b_x+1
+        sbc #>BOARD_SHIP_B_TARGET_X
+        bcc board_anim_done
+        lda boarding_ship_b_x
+        sec
+        sbc boarding_ship_step
+        sta boarding_ship_b_x
+        bcs board_anim_nohi
+        dec boarding_ship_b_x+1
+board_anim_nohi:
+        lda boarding_ship_b_y
+        sec
+        sbc boarding_ship_step
+        cmp #BOARD_SHIP_B_TARGET_Y
+        bcs board_anim_sety
+        lda #BOARD_SHIP_B_TARGET_Y
+board_anim_sety:
+        sta boarding_ship_b_y
+        jsr set_boarding_ship_positions
+        jsr boarding_anim_delay
+        jmp board_anim_loop
+board_anim_done:
+        lda #<BOARD_SHIP_B_TARGET_X
+        sta boarding_ship_b_x
+        lda #>BOARD_SHIP_B_TARGET_X
+        sta boarding_ship_b_x+1
+        lda #BOARD_SHIP_B_TARGET_Y
+        sta boarding_ship_b_y
+        jsr set_boarding_ship_positions
+        rts
+
+boarding_anim_delay:
+        ldx #4
+board_delay_outer:
+        ldy #0
+board_delay_inner:
+        dey
+        bne board_delay_inner
+        dex
+        bne board_delay_outer
+        rts
+
 set_sprite_pointers_map:
         lda #SPRITE_PTR_BANK1_BASE
         sta SPRITE_PTR_TAB_BANK1_MAP
@@ -260,6 +485,46 @@ ship_sprites:
         .byte $00,$00,$00,$00,$00,$00,$00,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$00
         .byte $00,$00,$00,$00,$00,$00,$00,$03
+
+large_boarding_ship_1:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$10,$00,$00,$05,$00
+        .byte $00,$48,$00,$00,$4A,$00,$00,$4A
+        .byte $00,$00,$4A,$00,$00,$6A,$00,$10
+        .byte $6A,$00,$04,$6A,$00,$21,$60,$00
+        .byte $2A,$50,$00,$2A,$64,$00,$2A,$69
+        .byte $00,$2A,$6A,$00,$2A,$6A,$00,$2A
+        .byte $6A,$00,$2A,$6A,$00,$20,$4A,$8F
+
+large_boarding_ship_2:
+        .byte $7C,$00,$00,$7C,$00,$00,$7C,$00
+        .byte $00,$40,$00,$00,$40,$00,$00,$50
+        .byte $00,$00,$45,$00,$00,$68,$50,$00
+        .byte $6A,$00,$00,$6A,$10,$00,$6A,$10
+        .byte $00,$62,$90,$00,$4A,$90,$00,$6A
+        .byte $90,$00,$6A,$90,$00,$66,$90,$00
+        .byte $69,$90,$00,$6A,$50,$00,$6A,$90
+        .byte $00,$6A,$94,$00,$6A,$91,$00,$8F
+
+large_boarding_ship_3:
+        .byte $01,$40,$40,$00,$95,$40,$00,$AA
+        .byte $54,$00,$AA,$69,$00,$AA,$6A,$00
+        .byte $AA,$6A,$00,$AA,$6A,$00,$2A,$68
+        .byte $10,$0A,$60,$55,$4A,$40,$29,$82
+        .byte $40,$2A,$40,$40,$0A,$90,$40,$02
+        .byte $84,$40,$00,$85,$55,$00,$21,$55
+        .byte $00,$01,$44,$00,$00,$FF,$00,$00
+        .byte $55,$00,$00,$55,$00,$00,$15,$8F
+
+large_boarding_ship_4:
+        .byte $6A,$90,$40,$6A,$90,$10,$6A,$90
+        .byte $04,$6A,$90,$01,$6A,$90,$00,$42
+        .byte $90,$00,$40,$10,$00,$40,$10,$00
+        .byte $40,$10,$00,$40,$10,$00,$40,$11
+        .byte $55,$40,$11,$11,$40,$11,$55,$40
+        .byte $11,$55,$55,$55,$55,$55,$55,$55
+        .byte $44,$44,$54,$FF,$FF,$F0,$55,$55
+        .byte $50,$55,$55,$50,$55,$55,$50,$8F
 
         .import source "audio.inc"
         .import source "intro.inc"

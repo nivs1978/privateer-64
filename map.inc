@@ -602,6 +602,7 @@ encounter_choice_2_key:
         jmp encounter_choice_2_key
 
 encounter_board_selected:
+        jsr run_boarding_ship_animation
         jsr run_boarding_fight_text
         lda battle_return_to_main_choice
         bne encounter_board_done
