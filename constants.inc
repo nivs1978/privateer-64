@@ -5,6 +5,10 @@
 
 .const VIC_D018_MAIN = $15      // screen $0400, charset $1000 (bank 0)
 .const VIC_D018_INTRO = $12     // screen $4400, charset $4800 (bank 1)
+.const INTRO_BITMAP_D018 = $78  // screen $5c00, bitmap $6000 (bank 1)
+.const INTRO_BITMAP_SCREEN = $5c00
+// Pristine copy of the intro bitmap, kept in the RAM under the KERNAL ROM.
+.const INTRO_BITMAP_STASH = $e000
 
 .const KERNAL_SCREEN_PAGE_ADDR = $0288
 .const KERNAL_SCREEN_PAGE_MAIN = $04

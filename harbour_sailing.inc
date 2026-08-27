@@ -115,7 +115,7 @@ harbour_sailing_auto_step:
         dec harbour_sailing_steps
         bne harbour_sailing_auto_step
         bcc harbour_sailing_run_done
-        jmp ship_sank
+        jmp harbour_entrance_lost
 harbour_sailing_run_done:
         lda #14
         sta $d020

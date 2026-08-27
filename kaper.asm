@@ -11,6 +11,19 @@
 start:
         // Intro installs a RAM charset at $1000 after screen/color data has been copied.
 
+        jsr save_intro_bitmap
+        lda #0
+        sta skip_title_screen
+        jmp start_setup
+
+// Entered after a game over: draw_map has overwritten the intro bitmap, so put
+// the stashed copy back and go straight to the intro instead of the title.
+restart_game:
+        jsr restore_intro_bitmap
+        lda #1
+        sta skip_title_screen
+
+start_setup:
         jsr load_ship_sprites
         lda #0
         sta ship_x
@@ -39,6 +52,10 @@ start:
         lda #$93
         jsr $ffd2
 
+        lda skip_title_screen
+        bne start_skip_title
+        jsr show_start_screen
+start_skip_title:
         jsr run_intro
         jmp done
 
@@ -191,7 +208,7 @@ load_boarding_ship_sprites:
 
         // Both ships share the same four 24x21 tiles, so sprites 0-3 and 4-7
         // point at blocks 64-67 ($5000-$50ff). Using eight distinct blocks
-        // would spill into $5100, which holds the relocated text segment.
+        // would spill into $5100, which holds the shooting crosshair sprite.
         ldx #0
 board_ptr_setup:
         txa
@@ -429,6 +446,7 @@ hvadstr: .text "HVAD ER DIT NAVN? "
 kaperstr:.text "KAPER"
          .byte 0
 namebuf: .byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+skip_title_screen: .byte 0
 ship_x:  .byte 0
 ship_x_hi:.byte 12
 ship_y:  .byte 72
@@ -454,6 +472,11 @@ pending_prize_rigsdaler_hi:  .byte 0
 // BASIC line 102: IPOINTLIM = IPOINT!+500+250*IDIF, ITURLIM = ITUR+325-12.5*IDIF (IDIF=2 at start)
 point_limit:        .word 1000
 turn_limit:         .word 300
+
+kaper_code_end:
+// Pure sprite data, relocated into the $8000-$87ff gap freed when the PETSCII
+// intro screen was replaced by the disk-loaded bitmap.
+* = $8000 "ShipSpriteData"
 
         // 3 sprites generated with spritemate on 01/08/2026, 12:48:00
         // Byte 64 of each sprite contains multicolor (high nibble) & color (low nibble) information
@@ -526,7 +549,10 @@ large_boarding_ship_4:
         .byte $44,$44,$54,$FF,$FF,$F0,$55,$55
         .byte $50,$55,$55,$50,$55,$55,$50,$8F
 
+* = kaper_code_end
+
         .import source "audio.inc"
+        .import source "start.inc"
         .import source "intro.inc"
         .import source "shooting.inc"
         .import source "harbour_sailing.inc"
@@ -537,7 +563,9 @@ large_boarding_ship_4:
         .import source "harbour.inc"
         .import source "map.inc"
 
-        // Imported last: it relocates the PC to the free $8000-$8fff gap, so it
-        // must not be followed by anything that belongs in the code segment.
-        .import source "intro_screen.inc"
+// Intro picture linked straight into the PRG ($5c00 colour/screen, $6000 bitmap)
+// instead of a separate KERNAL LOAD, which cost ~20s at 1541 speed. The area is
+// scratch after the intro: draw_map overwrites $6000-$7f3f with the map bitmap.
+* = $5c00 "IntroBitmapData"
+        .import binary "intro.dat", 2
 

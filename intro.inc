@@ -5,22 +5,20 @@ run_intro:
         // BASIC line 5: screen off while intro is prepared
         jsr hide_vic_screen
 
-        // BASIC lines 20/30: intro colors
-        lda #14
-        sta $d020
         lda #6
+        sta $d020
         sta $d021
 
         lda #$93
         jsr $ffd2
         jsr configure_intro_vic_bank
-        jsr draw_intro_screen
         jsr prepare_intro_charset
+        jsr draw_intro_press_key
         jsr audio_init
+        jsr enable_intro_bitmap_mode
         lda #0
         sta $c6
         jsr show_vic_screen
-        jsr draw_intro_prompt
 
         lda #<play_intro_theme
         ldx #>play_intro_theme
@@ -38,9 +36,99 @@ intro_wait_key:
 
 intro_done:
         jsr audio_stop
+        jsr disable_intro_bitmap_mode
+        lda #14
+        sta $d020
+        lda #6
+        sta $d021
         lda #0
         sta $c6
         jsr show_vic_screen
+        rts
+
+// The intro bitmap lives at $6000, which draw_map later overwrites with the map.
+// Stash a pristine copy in the RAM hidden under the KERNAL ROM so the intro can
+// be shown again after a game over. Writes to $e000-$ffff always land in RAM.
+save_intro_bitmap:
+        lda #<$6000
+        sta src_ptr
+        lda #>$6000
+        sta src_ptr+1
+        lda #<INTRO_BITMAP_STASH
+        sta dst_ptr
+        lda #>INTRO_BITMAP_STASH
+        sta dst_ptr+1
+        jmp copy_intro_bitmap_len
+
+// Reading the stash needs the KERNAL banked out, so no interrupts may fire.
+restore_intro_bitmap:
+        sei
+        lda $01
+        pha
+        and #%11111101              // HIRAM off: RAM at $e000-$ffff, I/O still mapped
+        sta $01
+        lda #<INTRO_BITMAP_STASH
+        sta src_ptr
+        lda #>INTRO_BITMAP_STASH
+        sta src_ptr+1
+        lda #<$6000
+        sta dst_ptr
+        lda #>$6000
+        sta dst_ptr+1
+        jsr copy_intro_bitmap_len
+        pla
+        sta $01
+        cli
+        rts
+
+copy_intro_bitmap_len:
+        lda #<$1f40
+        sta len_lo
+        lda #>$1f40
+        sta len_hi
+        jmp copy_len_bytes
+
+// Draws the prompt into the intro hires bitmap's bottom-left character row.
+// draw_bmp_char writes its colour byte to the $4400 screen, so the colour cells
+// for the intro's own screen at $5c00 have to be filled separately.
+draw_intro_press_key:
+        lda #0
+        sta bmp_char_col
+        lda #24
+        sta bmp_char_row
+        bstr(intro_press_key)
+        ldx #0
+ipk_colour:
+        lda #$16                    // white fg on dark blue bg
+        sta INTRO_BITMAP_SCREEN + 24 * 40, x
+        inx
+        cpx #intro_press_key_end - intro_press_key - 1
+        bne ipk_colour
+        rts
+
+intro_press_key:
+        .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
+        .byte 0
+intro_press_key_end:
+
+enable_intro_bitmap_mode:
+        lda #INTRO_BITMAP_D018
+        sta $d018
+        lda $d016
+        and #$ef                    // hires, not multicolor
+        sta $d016
+        lda $d011
+        ora #$20                    // BMM on
+        sta $d011
+        rts
+
+disable_intro_bitmap_mode:
+        jsr hide_vic_screen
+        lda $d011
+        and #$df
+        sta $d011
+        lda #VIC_D018_INTRO
+        sta $d018
         rts
 
 // ---------------------------------------------------------------------------
@@ -107,52 +195,6 @@ sound_promotion:
         lda #<play_promotion
         ldx #>play_promotion
         jmp audio_play
-
-draw_intro_screen:
-        lda #<intro_screen_data
-        sta intro_src_ptr
-        lda #>intro_screen_data
-        sta intro_src_ptr+1
-        lda #<INTRO_SCREEN_RAM
-        sta intro_dst_ptr
-        lda #>INTRO_SCREEN_RAM
-        sta intro_dst_ptr+1
-        jsr copy_1000_bytes
-
-        lda #<intro_color_data
-        sta intro_src_ptr
-        lda #>intro_color_data
-        sta intro_src_ptr+1
-        lda #<$d800
-        sta intro_dst_ptr
-        lda #>$d800
-        sta intro_dst_ptr+1
-        jsr copy_1000_bytes
-        rts
-
-draw_intro_prompt:
-        // Print prompt from .text at row 24, col 0 in intro screen.
-        lda #19
-        jsr $ffd2
-        ldx #24
-draw_intro_prompt_down:
-        lda #17
-        jsr $ffd2
-        dex
-        bne draw_intro_prompt_down
-        lda #152
-        jsr $ffd2
-        ldx #0
-draw_intro_prompt_text:
-        lda press_any_key_msg,x
-        beq draw_intro_prompt_done
-        jsr $ffd2
-        inx
-        bne draw_intro_prompt_text
-draw_intro_prompt_done:
-        lda #19
-        jsr $ffd2
-        rts
 
 hide_vic_screen:
         lda $d011

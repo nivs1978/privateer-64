@@ -18,7 +18,7 @@ run_shooting_minigame:
         sta $d015       // hide all sprites while displaying screen
 
         lda #<shooting_screen_data
-        sta intro_src_ptr
+                sta intro_src_ptr
         lda #>shooting_screen_data
         sta intro_src_ptr+1
         lda #<INTRO_SCREEN_RAM
@@ -28,7 +28,7 @@ run_shooting_minigame:
         jsr copy_1000_bytes
 
         lda #<shooting_color_data
-        sta intro_src_ptr
+                sta intro_src_ptr
         lda #>shooting_color_data
         sta intro_src_ptr+1
         lda #<$d800
@@ -45,28 +45,33 @@ run_shooting_minigame:
         sta shoot_elev
         sta shoot_side
 
+        jsr load_shooting_ship
+
         lda #<crosshair_sprite
         sta intro_src_ptr
         lda #>crosshair_sprite
         sta intro_src_ptr+1
-        lda #<$50c0
+        lda #<$5100
         sta intro_dst_ptr
-        lda #>$50c0
+        lda #>$5100
         sta intro_dst_ptr+1
         ldy #63
+        lda (intro_src_ptr),y
+        sta (intro_dst_ptr),y
+        dey
 xhair_copy:
         lda (intro_src_ptr),y
         sta (intro_dst_ptr),y
         dey
         bpl xhair_copy
 
-        lda #SPRITE_PTR_BANK1_BASE+3
+        lda #SPRITE_PTR_BANK1_BASE+4
         sta SPRITE_PTR_TAB_BANK1_INTRO
         lda #10
         sta $d027
 
         jsr redraw_shooting_view
-        lda #$01
+        lda #$1f
         sta $d015
         jsr show_vic_screen
 
@@ -141,7 +146,7 @@ xhair_abort:
         rts
 
 xhair_done:
-        lda #$00
+        lda #$1e
         sta $d015
         jsr resolve_shot_round
         lda battle_return_to_main_choice
@@ -482,8 +487,70 @@ redraw_shooting_view:
 
         jsr update_shooting_screen
         jsr update_crosshair_pos
-        lda #$01
+        lda #$1f
         sta $d015
+        rts
+
+// The enemy ship uses four multicolor sprites in blocks 64-67. Sprite 0 is
+// reserved for the crosshair, which has priority over sprites 1-4.
+load_shooting_ship:
+        lda #SPRITE_PTR_BANK1_BASE
+        sta SPRITE_PTR_TAB_BANK1_INTRO+1
+        lda #SPRITE_PTR_BANK1_BASE+1
+        sta SPRITE_PTR_TAB_BANK1_INTRO+2
+        lda #SPRITE_PTR_BANK1_BASE+2
+        sta SPRITE_PTR_TAB_BANK1_INTRO+3
+        lda #SPRITE_PTR_BANK1_BASE+3
+        sta SPRITE_PTR_TAB_BANK1_INTRO+4
+
+        lda #4
+        sta $d025
+        lda #3
+        sta $d026
+        lda #15
+        sta $d028
+        sta $d029
+        sta $d02a
+        sta $d02b
+
+        lda #$1e
+        sta $d01c
+        lda #$00
+        sta $d010
+        sta $d017
+        sta $d01d
+        lda #$1e
+        sta $d01b
+
+        // BASIC's default enemy graphic position is IAKTX=225, IAKTY=70;
+        // shift the sprite 2 pixels right and 10 pixels down.
+        lda #227
+        sta $d002
+        sta $d006
+        lda #251
+        sta $d004
+        sta $d008
+
+        lda #80
+        sta $d003
+        sta $d005
+        lda #101
+        sta $d007
+        sta $d009
+
+        ldx #0
+shooting_ship_copy:
+        lda large_boarding_ship_1,x
+        sta SPRITE_DATA_BANK1,x
+        lda large_boarding_ship_2,x
+        sta SPRITE_DATA_BANK1+64,x
+        lda large_boarding_ship_3,x
+        sta SPRITE_DATA_BANK1+128,x
+        lda large_boarding_ship_4,x
+        sta SPRITE_DATA_BANK1+192,x
+        inx
+        cpx #64
+        bne shooting_ship_copy
         rts
 
 draw_shot_markers:
@@ -783,6 +850,8 @@ rsr_check_enemy_crew:
         bne rsr_check_enemy_hp
 rsr_enemy_defeated:
         jsr clear_enemy_ship_surrender_area
+        lda #$00
+        sta $d015
         lda #26
         ldx #2
         ldy #9
@@ -797,9 +866,9 @@ rsr_enemy_report:
 // BASIC 3030-3070: hull destroyed, so the ship sinks before the report.
 // BASIC 2900 jumps past 2950, so a sinking never strikes the colours.
 rsr_enemy_sunk:
-        // Clear the shot markers first so only the ship is left to sink.
+        // Clear the shot markers first, then sink the sprite ship.
         jsr redraw_shooting_view
-        lda #$00
+        lda #$1e
         sta $d015
         jsr sink_enemy_ship
         jmp rsr_enemy_report
@@ -1145,13 +1214,60 @@ clear_enemy_ship_colour:
         rts
 
 sink_enemy_ship:
-        lda #SINK_ROWS
+        ldx #60
+        lda #21
         sta sink_steps
 sink_step_loop:
-        jsr sink_shift_down
-        jsr sink_wait_half_second
+        lda #0
+        sta SPRITE_DATA_BANK1+128,x
+        sta SPRITE_DATA_BANK1+192,x
+        inx
+        sta SPRITE_DATA_BANK1+128,x
+        sta SPRITE_DATA_BANK1+192,x
+        inx
+        sta SPRITE_DATA_BANK1+128,x
+        sta SPRITE_DATA_BANK1+192,x
+        txa
+        sec
+        sbc #5
+        tax
+
+        inc $d003
+        inc $d005
+        inc $d007
+        inc $d009
+        jsr sink_wait_fast
         dec sink_steps
         bne sink_step_loop
+
+        ldx #60
+        lda #21
+        sta sink_steps
+sink_top_step_loop:
+        lda #0
+        sta SPRITE_DATA_BANK1,x
+        sta SPRITE_DATA_BANK1+64,x
+        inx
+        sta SPRITE_DATA_BANK1,x
+        sta SPRITE_DATA_BANK1+64,x
+        inx
+        sta SPRITE_DATA_BANK1,x
+        sta SPRITE_DATA_BANK1+64,x
+        txa
+        sec
+        sbc #5
+        tax
+
+        inc $d003
+        inc $d005
+        inc $d007
+        inc $d009
+        jsr sink_wait_fast
+        dec sink_steps
+        bne sink_top_step_loop
+
+        lda #0
+        sta $d015
         rts
 
 // Each step drops the ship one row; the bottom row goes under and the top blanks.
@@ -1203,8 +1319,9 @@ sink_blank_top:
         bpl sink_blank_top
         rts
 
-sink_wait_half_second:
-        lda #15
+// Five times faster than the original 15-tick sinking delay.
+sink_wait_fast:
+        lda #3
         sta sink_delay
 sink_wait_tick:
         lda $a2
@@ -1237,13 +1354,13 @@ shooting_screen_data:
         .byte 160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160
         .byte 160,6,10,5,14,4,5,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
         .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
-        .byte 160,32,32,32,32,100,121,248,247,160,160,247,98,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,118,219,32,32,32,32,32,32,32,32,160
-        .byte 160,32,32,32,32,99,120,226,239,160,160,239,226,32,32,32,32,32,32,160,32,32,32,32,32,32,118,160,223,118,160,223,32,32,32,32,32,32,32,160
-        .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,118,64,67,118,160,160,223,32,32,32,32,32,32,160
-        .byte 160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,32,32,32,32,32,32,118,160,160,118,160,160,160,223,32,32,32,32,32,160
-        .byte 160,5,7,5,14,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,77,32,118,32,32,118,32,225,251,251,32,32,32,32,32,160
-        .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,251,160,239,239,239,239,239,239,236,32,32,32,32,32,160
-        .byte 160,32,32,32,32,100,121,248,247,160,160,247,98,32,32,32,32,32,32,160,32,32,32,32,32,32,251,160,160,160,160,160,160,32,32,32,32,32,32,160
+        .byte 160,32,32,32,32,100,121,248,247,160,160,247,98,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,32,32,32,32,99,120,226,239,160,160,239,226,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,5,7,5,14,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
+        .byte 160,32,32,32,32,100,121,248,247,160,160,247,98,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
         .byte 160,32,32,32,32,99,120,226,239,160,160,239,226,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
         .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160
         .byte 160,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,160,32,32,32,32,32,32,32,19,9,7,20,5,32,32,32,32,32,32,32,160

@@ -1375,18 +1375,6 @@ show_press_any_key_wait:
         beq show_press_any_key_wait
         rts
 
-// End screen: drop keys buffered during the fight, then wait for RETURN only.
-show_press_enter:
-        pstr(press_enter_msg)
-        jsr show_vic_screen
-        lda #0
-        sta $c6
-show_press_enter_wait:
-        jsr $ffe4
-        cmp #13
-        bne show_press_enter_wait
-        rts
-
 // BASIC line 5000: die if crew_men <= 10 or ship_repair_points <= 20.
 // Resets the stack and jumps to ship_sank if either threshold is breached.
 check_ship_survival:
@@ -1779,31 +1767,27 @@ ship_sank:
         sta $d020
         jsr configure_intro_vic_bank
         jsr prepare_text_notice_screen
-        pstrnl(ship_sank_msg)
-        lda ship_sank_cause_lo
-        ora ship_sank_cause_hi
-        beq ship_sank_no_cause
-        lda ship_sank_cause_lo
-        sta src_ptr
-        lda ship_sank_cause_hi
-        sta src_ptr+1
-        jsr print_zero_terminated
-        jsr print_newline
-ship_sank_no_cause:
         jsr sound_sink
         jmp end_game_summary
 
-// BASIC line 6500: resource limits are a distinct loss screen, then flow into
-// line 5020 for the final totals and RETURN-to-restart prompt.
+// BASIC line 6500: resource limits share the same tally screen; the cause line
+// is printed from ship_sank_cause.
 resource_limit_sank:
+        jmp ship_sank
+
+// BASIC line 1750: missing the harbour entrance on the last approach step sinks
+// the ship outright - no points or final tally, unlike every other loss.
+harbour_entrance_lost:
         jsr hide_ship
         lda #6
         sta $d020
         jsr configure_intro_vic_bank
         jsr prepare_text_notice_screen
-        pstrnl(resource_limit_sank_msg)
+        jsr print_newline
+        jsr print_double_newline
+        pstrnl(ship_sank_msg)
         jsr sound_sink
-        jmp end_game_summary
+        jmp end_game_restart
 
 // BASIC 6000-6002: running out of turns loses the Komtesse, and you go over the
 // side. 6000 ends with RETURN 5020, so it drops straight into the end summary.
@@ -1822,20 +1806,39 @@ voyage_deadline_lost:
         jsr sound_sink
 
 end_game_summary:
-        pstr(ship_sank_men_prefix)
-        pnum(crew_men)
-        pstr(ship_sank_rep_prefix)
-        pnum(ship_repair_points)
         jsr print_newline
-        pstr(ship_sank_score_prefix)
+        jsr print_double_newline
+        pstrnl(end_sank_msg)
+        pstr(end_du_fik_msg)
         pnum(player_points)
+        pstr(end_point_og_havde_msg)
+        pnum(treasury_rigsdaler)
+        pstrnl(end_rigsdaler_msg)
+        lda ship_sank_cause_lo
+        ora ship_sank_cause_hi
+        beq end_game_no_cause
+        lda ship_sank_cause_lo
+        sta src_ptr
+        lda ship_sank_cause_hi
+        sta src_ptr+1
+        jsr print_zero_terminated
         jsr print_newline
-        jsr show_press_enter
+end_game_no_cause:
+        jsr print_newline
+        pstr(end_du_sluttede_msg)
+        pnum(crew_men)
+        pstr(end_mand_og_msg)
+        pnum(ship_repair_points)
+        pstrnl(end_rep_point_msg)
+end_game_restart:
+        lda #0
+        sta $c6                     // drop keys buffered during the fight
+        jsr show_press_any_key
         jsr audio_stop
         jsr restore_main_vic_bank
         ldx #$ff
         txs
-        jmp start
+        jmp restart_game
 
 read_key_blocking:
         jsr show_vic_screen
@@ -2985,13 +2988,11 @@ flag_pirate_sprite:
 
 // Program code ends comfortably before $4400 (VIC bank 1 screen RAM, shared
 // with the map's bitmap-mode colour screen); relocate the remaining pure text
-// data into the unused gap between the ship/crosshair sprites ($5000-$50ff)
-// and the map bitmap ($6000) so it never grows into that screen memory again.
+// data into the unused gap after the shooting sprites ($5140-$5fff) and before
+// the map bitmap ($6000) so it never grows into that screen memory again.
 code_segment_end:
-* = $5100 "HarbourAndMapText"
+* = $5140 "HarbourAndMapText"
 press_any_key_msg:      .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
-                        .byte 0
-press_enter_msg:        .text "TRYK P] RETURN FOR AT FORTS[TTE!"
                         .byte 0
 encounter_lookout_msg:  .text "UDKIGGEN MELDER:"
                         .byte 0
@@ -3059,13 +3060,19 @@ fight_status_row_2:
                         .byte 0
 ship_sank_msg:          .text "DIT SKIB GIK NED MED MAND OG MUS!"
                         .byte 0
-resource_limit_sank_msg:.text "BEKLAGER, DIT SKIB GIK NED!"
+end_sank_msg:           .text "BEKLAGER, DIT SKIB GIK NED !"
                         .byte 0
-ship_sank_men_prefix:   .text "M[ND: "
+end_du_fik_msg:         .text "DU FIK"
                         .byte 0
-ship_sank_rep_prefix:   .text "  REP: "
+end_point_og_havde_msg: .text "POINT OG HAVDE"
                         .byte 0
-ship_sank_score_prefix: .text "DU FIK "
+end_rigsdaler_msg:      .text "RIGSDALER!"
+                        .byte 0
+end_du_sluttede_msg:    .text "DU SLUTTEDE MED"
+                        .byte 0
+end_mand_og_msg:        .text "MAND OG"
+                        .byte 0
+end_rep_point_msg:      .text "REPERATIONS POINT"
                         .byte 0
 resource_treasury_msg:  .text "DIT SKIB GIK NED: FOR MANGE PENGE!"
                         .byte 0
