@@ -928,29 +928,17 @@ boarding_enemy_low:
         rts
 
 calculate_boarding_player_loss:
-        jsr random_mod_16
+        jsr random_mod_30
         sta battle_random
-        lda #0
+        lda crew_men
         sta battle_product_lo
+        lda crew_men+1
         sta battle_product_hi
         ldx difficulty_level
-cbpl_difficulty_loop:
-        cpx #0
-        beq cbpl_difficulty_done
-        clc
-        lda battle_product_lo
-        adc crew_men
-        sta battle_product_lo
-        lda battle_product_hi
-        adc crew_men+1
-        sta battle_product_hi
-        dex
-        jmp cbpl_difficulty_loop
-cbpl_difficulty_done:
-        jsr multiply_battle_product_by_random
-        lda #<480
+        jsr multiply_battle_product_by_x
+        lda #30
         sta battle_divisor_lo
-        lda #>480
+        lda #0
         sta battle_divisor_hi
         jsr divide_battle_product
         jsr scale_battle_loss_by_history
@@ -958,22 +946,97 @@ cbpl_difficulty_done:
         rts
 
 calculate_boarding_enemy_loss:
-        jsr calculate_boarding_player_loss
+        lda enemy_crew_lo
         sta battle_product_lo
-        lda #0
+        lda enemy_crew_hi
         sta battle_product_hi
-        lda difficulty_level
-        lsr
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        asl battle_product_lo
+        rol battle_product_hi
+        lda crew_men
+        sta battle_divisor_lo
+        lda crew_men+1
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        lda encounter_count
         clc
-        adc #1
+        adc flee_count
+        sta battle_factor
+        jsr multiply_product_by_factor
+        lda encounter_count
+        sta battle_divisor_lo
+        lda #0
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        ldx difficulty_level
+        jsr multiply_battle_product_by_x
+        lda #10
         sta battle_divisor_lo
         lda #0
         sta battle_divisor_hi
         jsr divide_battle_product
         lda battle_product_lo
+        cmp #154
+        bcs cbel_iimm_max
+        lda #154
+        sta battle_product_lo
+        lda #0
+        sta battle_product_hi
+cbel_iimm_max:
+        lda battle_product_lo
+        cmp #308
+        bcc cbel_iimm_saved
+        lda #307
+        sta battle_product_lo
+cbel_iimm_saved:
+        lda battle_product_lo
+        sta battle_iimm
+
+        lda boarding_last_player_loss
+        sta battle_product_lo
+        lda #0
+        sta battle_product_hi
+        ldx #8
+cbel_shift_loss:
+        asl battle_product_lo
+        rol battle_product_hi
+        dex
+        bne cbel_shift_loss
+        lda battle_iimm
+        sta battle_divisor_lo
+        lda #0
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        lda enemy_crew_lo
+        sta div_value_lo
+        lda enemy_crew_hi
+        sta div_value_hi
+        jsr divide16_by10
+        lda div_value_lo
+        sta battle_base_lo
+        lda battle_product_lo
+        cmp battle_base_lo
+        bcs cbel_loss_ready
+        lda battle_base_lo
+        sta battle_product_lo
+cbel_loss_ready:
+        lda battle_product_lo
         rts
 
-multiply_battle_product_by_random:
+multiply_product_by_factor:
         lda battle_product_lo
         sta battle_base_lo
         lda battle_product_hi
@@ -981,10 +1044,10 @@ multiply_battle_product_by_random:
         lda #0
         sta battle_product_lo
         sta battle_product_hi
-        ldx battle_random
-mbp_random_loop:
+        ldx battle_factor
+multiply_factor_loop:
         cpx #0
-        beq mbp_random_done
+        beq multiply_factor_done
         clc
         lda battle_product_lo
         adc battle_base_lo
@@ -993,9 +1056,13 @@ mbp_random_loop:
         adc battle_base_hi
         sta battle_product_hi
         dex
-        jmp mbp_random_loop
-mbp_random_done:
+        jmp multiply_factor_loop
+multiply_factor_done:
         rts
+
+multiply_battle_product_by_x:
+        stx battle_factor
+        jmp multiply_product_by_factor
 
 divide_battle_product:
         lda #0
@@ -1396,6 +1463,12 @@ random_mod_40_reduce:
         sbc #40
         jmp random_mod_40_reduce
 random_mod_40_done:
+        rts
+
+random_mod_30:
+        jsr random_mod_64
+        cmp #30
+        bcs random_mod_30
         rts
 
 random_mod_50:
@@ -2838,6 +2911,7 @@ battle_quotient_lo: .byte 0
 battle_quotient_hi: .byte 0
 battle_divisor_lo: .byte 0
 battle_divisor_hi: .byte 0
+battle_iimm: .byte 0
 grain_upkeep_remainder: .word 0
 upkeep_old_rem_lo: .byte 0
 upkeep_old_rem_hi: .byte 0

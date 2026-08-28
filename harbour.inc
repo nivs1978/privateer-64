@@ -547,31 +547,31 @@ multiply_qty_price:
         sta mul_a_lo
         lda harbour_qty_hi
         sta mul_a_hi
-        ldx #8
 multiply_qty_price_loop:
-        lsr mul_price_byte
-        bcc multiply_qty_price_skip
+        lda mul_a_lo
+        ora mul_a_hi
+        beq multiply_qty_price_done
         clc
         lda harbour_cost_lo
-        adc mul_a_lo
+        adc mul_price_byte
         sta harbour_cost_lo
         lda harbour_cost_hi
-        adc mul_a_hi
-        sta harbour_cost_hi
-        lda mul_overflow
         adc #0
-        sta mul_overflow
-multiply_qty_price_skip:
-        asl mul_a_lo
-        rol mul_a_hi
-        rol mul_overflow
-        dex
-        bne multiply_qty_price_loop
-        lda mul_overflow
-        beq multiply_qty_price_done
+        sta harbour_cost_hi
+        bcc multiply_qty_price_decrement
         lda #$ff
         sta harbour_cost_lo
         sta harbour_cost_hi
+        rts
+multiply_qty_price_decrement:
+        sec
+        lda mul_a_lo
+        sbc #1
+        sta mul_a_lo
+        lda mul_a_hi
+        sbc #0
+        sta mul_a_hi
+        jmp multiply_qty_price_loop
 multiply_qty_price_done:
         rts
 
