@@ -3,50 +3,22 @@
 // Border 14 (light blue), background 6 (dark blue).
 
 run_shooting_minigame:
-        // outer on_random_sea_event already set VIC bank 1 text mode at $4400
         jsr hide_vic_screen
-        lda $d011
-        and #$df        // ensure BMM cleared (text mode)
+        lda #$df
+        and $d011
         sta $d011
-
         lda #14
         sta $d020
         lda #6
         sta $d021
-
-        lda #$00
-        sta $d015       // hide all sprites while displaying screen
-
-        lda #<shooting_screen_data
-                sta intro_src_ptr
-        lda #>shooting_screen_data
-        sta intro_src_ptr+1
-        lda #<INTRO_SCREEN_RAM
-        sta intro_dst_ptr
-        lda #>INTRO_SCREEN_RAM
-        sta intro_dst_ptr+1
-        jsr copy_1000_bytes
-
-        lda #<shooting_color_data
-                sta intro_src_ptr
-        lda #>shooting_color_data
-        sta intro_src_ptr+1
-        lda #<$d800
-        sta intro_dst_ptr
-        lda #>$d800
-        sta intro_dst_ptr+1
-        jsr copy_1000_bytes
-
+        lda #0
+        sta $d015
         jsr init_shooting_state
         lda #0
         sta battle_return_to_main_choice
-
-        lda #0
         sta shoot_elev
         sta shoot_side
-
         jsr load_shooting_ship
-
         lda #<crosshair_sprite
         sta intro_src_ptr
         lda #>crosshair_sprite
@@ -56,98 +28,54 @@ run_shooting_minigame:
         lda #>$5100
         sta intro_dst_ptr+1
         ldy #63
+shooting_crosshair_copy:
         lda (intro_src_ptr),y
         sta (intro_dst_ptr),y
         dey
-xhair_copy:
-        lda (intro_src_ptr),y
-        sta (intro_dst_ptr),y
-        dey
-        bpl xhair_copy
-
+        bpl shooting_crosshair_copy
         lda #SPRITE_PTR_BANK1_BASE+4
         sta SPRITE_PTR_TAB_BANK1_INTRO
         lda #10
         sta $d027
-
+        jsr update_crosshair_pos
         jsr redraw_shooting_view
         lda #$1f
         sta $d015
         jsr show_vic_screen
-
         lda #0
         sta $c6
 xhair_loop:
         jsr $ffe4
         beq xhair_loop
-
         cmp #$30
         beq xhair_abort
-        cmp #$46
+        cmp #'F'
         beq xhair_done
-        cmp #$66
+        cmp #'f'
         beq xhair_done
-
-        cmp #$11            // cursor down
-        bne xhair_chk_cursor_up
-        jmp xhair_down
-xhair_chk_cursor_up:
-        cmp #$91            // cursor up
-        bne xhair_chk_cursor_left
-        jmp xhair_up
-xhair_chk_cursor_left:
-        cmp #$9d            // cursor left
-        bne xhair_chk_cursor_right
-        jmp xhair_left
-xhair_chk_cursor_right:
-        cmp #$1d            // cursor right
-        bne xhair_chk_keypad
-        jmp xhair_right
-xhair_chk_keypad:
-
-        cmp #$32
-        bne xhair_chk_up
-        jmp xhair_down
-xhair_chk_up:
-        cmp #$38
-        bne xhair_chk_left
-        jmp xhair_up
-xhair_chk_left:
-        cmp #$34
-        bne xhair_chk_right
-        jmp xhair_left
-xhair_chk_right:
-        cmp #$36
-        bne xhair_chk_down_left
-        jmp xhair_right
-xhair_chk_down_left:
-        cmp #$31
-        bne xhair_chk_down_right
-        jmp xhair_down_left
-xhair_chk_down_right:
-        cmp #$33
-        bne xhair_chk_up_left
-        jmp xhair_down_right
-xhair_chk_up_left:
-        cmp #$37
-        bne xhair_chk_up_right
-        jmp xhair_up_left
-xhair_chk_up_right:
-        cmp #$39
-        bne xhair_loop
-        jmp xhair_up_right
-
+        cmp #$11
+        beq xhair_down
+        cmp #$91
+        beq xhair_up
+        cmp #$9d
+        beq xhair_left
+        cmp #$1d
+        beq xhair_right
+        cmp #'2'
+        beq xhair_down
+        cmp #'8'
+        beq xhair_up
+        cmp #'4'
+        beq xhair_left
+        cmp #'6'
+        beq xhair_right
+        jmp xhair_loop
 xhair_abort:
-        lda #$00
+        lda #0
         sta $d015
         jsr clear_text_notice_screen
-        lda #0
-        sta battle_return_to_main_choice
         rts
-
 xhair_done:
-        lda #$1e
-        sta $d015
         jsr resolve_shot_round
         lda battle_return_to_main_choice
         cmp #2
@@ -160,7 +88,6 @@ fire_wait_key:
         beq fire_wait_key
         jsr redraw_shooting_view
         jmp xhair_loop
-
 xhair_exit_battle:
         rts
 
@@ -782,72 +709,18 @@ rsr_miss:
         jsr sound_splash
         lda #1
         sta shot_marker_is_splash
+        jsr apply_enemy_cannon_result
         jmp rsr_damage_player
 
 rsr_hit:
-        // Centered impacts for the character-cell vessel panels.
         lda #0
         sta shot_marker_is_splash
-
-        lda shot_power
-        clc
-        adc #4
-        sta damage_lo
-        lda #0
-        sta damage_hi
-
-        sec
-        lda enemy_ship_hp_lo
-        sbc damage_lo
-        sta enemy_ship_hp_lo
-        lda enemy_ship_hp_hi
-        sbc damage_hi
-        bcs rsr_enemy_hp_ok
-        lda #0
-        sta enemy_ship_hp_lo
-        sta enemy_ship_hp_hi
-rsr_enemy_hp_ok:
-
-        lda shot_power
-        lsr
-        clc
-        adc #1
-        sta damage_lo
-        lda #0
-        sta damage_hi
-
-        sec
-        lda enemy_crew_lo
-        sbc damage_lo
-        sta enemy_crew_lo
-        lda enemy_crew_hi
-        sbc damage_hi
-        bcs rsr_enemy_crew_ok
-        lda #0
-        sta enemy_crew_lo
-        sta enemy_crew_hi
-rsr_enemy_crew_ok:
-        lda enemy_crew_hi
-        ora enemy_crew_lo
-        beq rsr_enemy_defeated
+        jsr apply_enemy_cannon_result
         lda enemy_ship_hp_hi
         ora enemy_ship_hp_lo
-        beq rsr_enemy_sunk
+        beq rsr_enemy_defeated
+        jmp rsr_damage_player
 
-        lda shot_power
-        lsr
-        lsr
-        cmp #3
-        bcc rsr_damage_player
-        lda enemy_cannons_lo
-        beq rsr_damage_player
-        dec enemy_cannons_lo
-        jmp rsr_check_enemy_crew
-
-rsr_check_enemy_crew:
-        lda enemy_crew_hi
-        ora enemy_crew_lo
-        bne rsr_check_enemy_hp
 rsr_enemy_defeated:
         jsr clear_enemy_ship_surrender_area
         lda #$00
@@ -930,6 +803,85 @@ rsr_player_crew_ok:
         jsr check_ship_survival
         rts
 
+apply_enemy_cannon_result:
+        lda shot_dist_error_hi
+        bpl aec_done
+        lda shot_dist_error_lo
+        cmp #$ce
+        bcc aec_done
+        lda ship_cannons
+        asl
+        sta battle_product_lo
+        lda ship_cannons+1
+        rol
+        sta battle_product_hi
+        lda difficulty_level
+        sta battle_divisor_lo
+        lda #0
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        sec
+        lda enemy_ship_hp_lo
+        sbc battle_product_lo
+        sta enemy_ship_hp_lo
+        lda enemy_ship_hp_hi
+        sbc battle_product_hi
+        sta enemy_ship_hp_hi
+        bcc aec_clear
+        clc
+        lda enemy_ship_hp_lo
+        adc shot_dist_error_lo
+        sta enemy_ship_hp_lo
+        lda enemy_ship_hp_hi
+        adc shot_dist_error_hi
+        sta enemy_ship_hp_hi
+        bpl aec_done
+aec_clear:
+        lda #0
+        sta enemy_ship_hp_lo
+        sta enemy_ship_hp_hi
+aec_done:
+        rts
+
+apply_cannon_player_damage:
+        jsr random_mod_10
+        cmp #4
+        bcc acpd_crew
+        lda enemy_cannons_lo
+        lsr
+        clc
+        adc #1
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        sec
+        lda ship_repair_points
+        sbc damage_lo
+        sta ship_repair_points
+        lda ship_repair_points+1
+        sbc damage_hi
+        sta ship_repair_points+1
+acpd_crew:
+        jsr random_mod_10
+        cmp #4
+        bcc acpd_done
+        lda enemy_cannons_lo
+        lsr
+        clc
+        adc #1
+        sta damage_lo
+        lda #0
+        sta damage_hi
+        sec
+        lda crew_men
+        sbc damage_lo
+        sta crew_men
+        lda crew_men+1
+        sbc damage_hi
+        sta crew_men+1
+acpd_done:
+        rts
+
 rsr_random_50:
         jsr random_mod_64
         cmp #50
@@ -940,21 +892,21 @@ classify_and_mark_shot_landing:
         lda #1
         sta shot_landing_y
         lda shot_dist_error_hi
-        bpl classify_landing_high
+        bpl classify_landing_iret_positive
         lda shot_dist_error_lo
         cmp #$ce
         bcs classify_landing_x
         lda #2
         sta shot_landing_y
         jmp classify_landing_x
-classify_landing_high:
+classify_landing_iret_positive:
         lda #0
         sta shot_landing_y
 classify_landing_x:
         lda #1
         sta shot_landing_x
         lda shot_iret
-        bpl classify_landing_iret_positive
+        bpl classify_landing_iret_positive_x
         eor #$ff
         clc
         adc #1
@@ -964,7 +916,7 @@ classify_landing_x:
         lda #2
         sta shot_landing_x
         jmp classify_landing_markers
-classify_landing_iret_positive:
+classify_landing_iret_positive_x:
         cmp shot_hit_tolerance
         bcc classify_landing_markers
         beq classify_landing_markers
@@ -974,9 +926,6 @@ classify_landing_markers:
         jmp set_enemy_impact_marker
 
 set_enemy_impact_marker:
-        // Present the BASIC landing result as two synchronized 3x3 grids:
-        // upper-left enemy frame (IXPL/IYPL) and right aim frame (IAKTX/IAKTY).
-        // The lower-left own frame is reserved for the multi-splash batch.
         lda shot_landing_x
         cmp #1
         beq set_enemy_impact_center_x

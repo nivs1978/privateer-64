@@ -317,6 +317,9 @@ init_map_navigation:
         // BASIC line 89/102: GOSUB 102 runs once before the voyage starts, setting IDIF=2.
         lda #2
         sta difficulty_level
+        lda #0
+        sta encounter_count
+        sta flee_count
         ldx #0
         lda #0
 init_clear_map_cleared:
@@ -531,6 +534,7 @@ print_captain_and_choose:
         rts
 
 run_enemy_encounter_text:
+        inc encounter_count
         jsr init_enemy_from_index
 
         pstrnl(encounter_lookout_msg)
@@ -570,6 +574,7 @@ encounter_choice_1_key:
         jmp encounter_choice_1_key
 
 encounter_flee_selected:
+        inc flee_count
         jsr sound_flee
         rts
 
@@ -922,14 +927,149 @@ boarding_enemy_low:
         sta battle_return_to_main_choice
         rts
 
-apply_boarding_round:
-        jsr random_mod_8
+calculate_boarding_player_loss:
+        jsr random_mod_16
+        sta battle_random
+        lda #0
+        sta battle_product_lo
+        sta battle_product_hi
+        ldx difficulty_level
+cbpl_difficulty_loop:
+        cpx #0
+        beq cbpl_difficulty_done
         clc
-        adc #2
+        lda battle_product_lo
+        adc crew_men
+        sta battle_product_lo
+        lda battle_product_hi
+        adc crew_men+1
+        sta battle_product_hi
+        dex
+        jmp cbpl_difficulty_loop
+cbpl_difficulty_done:
+        jsr multiply_battle_product_by_random
+        lda #<480
+        sta battle_divisor_lo
+        lda #>480
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        jsr scale_battle_loss_by_history
+        lda battle_product_lo
+        rts
+
+calculate_boarding_enemy_loss:
+        jsr calculate_boarding_player_loss
+        sta battle_product_lo
+        lda #0
+        sta battle_product_hi
+        lda difficulty_level
+        lsr
+        clc
+        adc #1
+        sta battle_divisor_lo
+        lda #0
+        sta battle_divisor_hi
+        jsr divide_battle_product
+        lda battle_product_lo
+        rts
+
+multiply_battle_product_by_random:
+        lda battle_product_lo
+        sta battle_base_lo
+        lda battle_product_hi
+        sta battle_base_hi
+        lda #0
+        sta battle_product_lo
+        sta battle_product_hi
+        ldx battle_random
+mbp_random_loop:
+        cpx #0
+        beq mbp_random_done
+        clc
+        lda battle_product_lo
+        adc battle_base_lo
+        sta battle_product_lo
+        lda battle_product_hi
+        adc battle_base_hi
+        sta battle_product_hi
+        dex
+        jmp mbp_random_loop
+mbp_random_done:
+        rts
+
+divide_battle_product:
+        lda #0
+        sta battle_quotient_lo
+        sta battle_quotient_hi
+dbp_loop:
+        lda battle_product_hi
+        cmp battle_divisor_hi
+        bcc dbp_done
+        bne dbp_subtract
+        lda battle_product_lo
+        cmp battle_divisor_lo
+        bcc dbp_done
+dbp_subtract:
+        sec
+        lda battle_product_lo
+        sbc battle_divisor_lo
+        sta battle_product_lo
+        lda battle_product_hi
+        sbc battle_divisor_hi
+        sta battle_product_hi
+        inc battle_quotient_lo
+        bne dbp_loop
+        inc battle_quotient_hi
+        jmp dbp_loop
+dbp_done:
+        lda battle_quotient_lo
+        sta battle_product_lo
+        lda battle_quotient_hi
+        sta battle_product_hi
+        rts
+
+scale_battle_loss_by_history:
+        lda encounter_count
+        beq sbh_done
+        clc
+        adc flee_count
+        sta battle_factor
+        lda battle_product_lo
+        sta battle_base_lo
+        lda battle_product_hi
+        sta battle_base_hi
+        lda #0
+        sta battle_product_lo
+        sta battle_product_hi
+        ldx battle_factor
+sbh_multiply_loop:
+        cpx #0
+        beq sbh_divide
+        clc
+        lda battle_product_lo
+        adc battle_base_lo
+        sta battle_product_lo
+        lda battle_product_hi
+        adc battle_base_hi
+        sta battle_product_hi
+        dex
+        jmp sbh_multiply_loop
+sbh_divide:
+        lda encounter_count
+        sta battle_divisor_lo
+        lda #0
+        sta battle_divisor_hi
+        jsr divide_battle_product
+sbh_done:
+        rts
+
+apply_boarding_round:
+        jsr calculate_boarding_player_loss
         sta damage_lo
-        sta boarding_last_player_loss
         lda #0
         sta damage_hi
+        lda damage_lo
+        sta boarding_last_player_loss
 
         sec
         lda crew_men
@@ -946,13 +1086,12 @@ boarding_player_crew_ok:
         sta crew_men+1
 boarding_player_done:
 
-        jsr random_mod_16
-        clc
-        adc #7
+        jsr calculate_boarding_enemy_loss
         sta damage_lo
-        sta boarding_last_enemy_loss
         lda #0
         sta damage_hi
+        lda damage_lo
+        sta boarding_last_enemy_loss
 
         lda enemy_crew_lo
         sta enemy_crew_prev_lo
@@ -1205,7 +1344,7 @@ init_enemy_from_index:
         lda enemy_grain_table,x
         sta enemy_grain
 
-        jsr random_mod_64
+        jsr random_mod_50
         clc
         adc #100
         sta enemy_ship_hp_lo
@@ -1257,6 +1396,12 @@ random_mod_40_reduce:
         sbc #40
         jmp random_mod_40_reduce
 random_mod_40_done:
+        rts
+
+random_mod_50:
+        jsr random_mod_64
+        cmp #50
+        bcs random_mod_50
         rts
 
 random_mod_64:
@@ -2652,6 +2797,8 @@ current_map_cell_type: .byte 0
 last_harbour_id: .byte 0
 ship_collision_counter: .byte 0
 difficulty_level: .byte 0
+encounter_count: .byte 0
+flee_count: .byte 0
 target_add_lo: .byte 0
 target_add_hi: .byte 0
 score_work_lo: .byte 0
@@ -2681,6 +2828,16 @@ boarding_last_enemy_loss: .byte 0
 battle_return_to_main_choice: .byte 0
 damage_lo: .byte 0
 damage_hi: .byte 0
+battle_random: .byte 0
+battle_factor: .byte 0
+battle_base_lo: .byte 0
+battle_base_hi: .byte 0
+battle_product_lo: .byte 0
+battle_product_hi: .byte 0
+battle_quotient_lo: .byte 0
+battle_quotient_hi: .byte 0
+battle_divisor_lo: .byte 0
+battle_divisor_hi: .byte 0
 grain_upkeep_remainder: .word 0
 upkeep_old_rem_lo: .byte 0
 upkeep_old_rem_hi: .byte 0
