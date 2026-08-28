@@ -30,6 +30,8 @@
 .const CHAR_SLOT_OE_ADDR = INTRO_CHARSET_RAM + $00e0
 .const CHAR_SLOT_AA_ADDR = INTRO_CHARSET_RAM + $00e8
 .const CHAR_SLOT_RIGHT_ARROW_ADDR = INTRO_CHARSET_RAM + $00f0
+.const CHAR_SLOT_SPLASH_LT_ADDR = INTRO_CHARSET_RAM + ($3c * 8)
+.const CHAR_SLOT_SPLASH_GT_ADDR = INTRO_CHARSET_RAM + ($3e * 8)
 .const CHAR_SLOT_HARBOUR_SHIP_ADDR = INTRO_CHARSET_RAM + ($5e * 8)
 
 // Shared zero-page pointers (declared here, first import, so every file that

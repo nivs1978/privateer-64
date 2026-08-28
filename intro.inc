@@ -301,6 +301,22 @@ charset_patch_right_arrow:
         bne charset_patch_right_arrow
 
         ldy #0
+charset_patch_splash_lt:
+        lda char_splash_lt,y
+        sta CHAR_SLOT_SPLASH_LT_ADDR,y
+        iny
+        cpy #8
+        bne charset_patch_splash_lt
+
+        ldy #0
+charset_patch_splash_gt:
+        lda char_splash_gt,y
+        sta CHAR_SLOT_SPLASH_GT_ADDR,y
+        iny
+        cpy #8
+        bne charset_patch_splash_gt
+
+        ldy #0
 charset_patch_harbour_ship:
         lda char_harbour_ship,y
         sta CHAR_SLOT_HARBOUR_SHIP_ADDR,y
@@ -340,4 +356,6 @@ char_ae:     .byte 63,108,108,127,108,108,111,0
 char_oe:     .byte 60,102,110,126,118,102,60,0
 char_aa:     .byte 24,36,24,60,102,126,102,0
 char_right_arrow: .byte 0,4,6,127,127,6,4,0
+char_splash_lt: .byte 0,0,0,24,126,165,126,24
+char_splash_gt: .byte 60,90,24,153,126,165,126,24
 char_harbour_ship: .byte 36,36,36,36,36,255,126,126

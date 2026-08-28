@@ -506,6 +506,70 @@ draw_shot_markers_landing:
         ldx shot_enemy_marker_x
         ldy shot_enemy_marker_y
         jsr draw_shot_marker_at
+        lda shot_marker_is_splash
+        beq draw_shot_markers_done
+        jsr animate_enemy_splash
+draw_shot_markers_done:
+        rts
+
+animate_enemy_splash:
+        ldx shot_enemy_marker_x
+        ldy shot_enemy_marker_y
+        lda #$3c
+        jsr draw_shot_char_at
+        ldx #30
+        jsr shooting_wait_frames
+        ldx shot_enemy_marker_x
+        ldy shot_enemy_marker_y
+        lda #$3e
+        jsr draw_shot_char_at
+        ldx #30
+        jsr shooting_wait_frames
+        ldx shot_enemy_marker_x
+        ldy shot_enemy_marker_y
+        lda #' '
+        jsr draw_shot_char_at
+        rts
+
+draw_shot_char_at:
+        sta shot_char_value
+        stx shot_marker_draw_x
+        sty shot_marker_draw_y
+        jsr set_screen_ptr_xy
+        ldy #0
+        lda shot_char_value
+        sta (dst_ptr),y
+        ldy shot_marker_draw_y
+        lda screen_row_addr_lo,y
+        sta intro_dst_ptr
+        lda screen_row_addr_hi,y
+        clc
+        adc #$94
+        sta intro_dst_ptr+1
+        ldx shot_marker_draw_x
+        txa
+        clc
+        adc intro_dst_ptr
+        sta intro_dst_ptr
+        bcc draw_shot_char_color_ptr_ok
+        inc intro_dst_ptr+1
+draw_shot_char_color_ptr_ok:
+        ldy #0
+        lda #1
+        sta (intro_dst_ptr),y
+        rts
+
+shooting_wait_frames:
+        stx shooting_wait_count
+        lda $a2
+        sta shooting_wait_previous
+shooting_wait_same:
+        lda $a2
+        cmp shooting_wait_previous
+        beq shooting_wait_same
+        sta shooting_wait_previous
+        dec shooting_wait_count
+        bne shooting_wait_same
         rts
 
 draw_shot_marker_at:
@@ -725,9 +789,10 @@ rsr_enemy_defeated:
         jsr clear_enemy_ship_surrender_area
         lda #$00
         sta $d015
-        lda #26
-        ldx #2
-        ldy #9
+        // Enemy frame interior: column 5, one row below the top.
+        lda #5
+        ldx #1
+        ldy #5
         jsr show_surrender_flag
 rsr_enemy_report:
         jsr sound_surrender
@@ -1114,6 +1179,9 @@ shot_dist_error_hi: .byte 0
 shot_roll: .byte 0
 shot_power: .byte 0
 shot_penalty: .byte 0
+shot_char_value: .byte 0
+shooting_wait_count: .byte 0
+shooting_wait_previous: .byte 0
 
 shot_marker_msg:
         .text "X"
