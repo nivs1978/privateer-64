@@ -38,7 +38,7 @@ To create the disk image and run the game in VICE, use:
 - `harbour.inc` contains harbour trading and resource management.
 - `map.inc` contains map movement, random events, boarding combat, the end-game and
   victory screens, the text/bitmap rendering helpers, and the map screen renderer.
-- `map_art_bytes.inc` contains the raw high-resolution bitmap data for the map.
+- `map.dat` contains the raw high-resolution bitmap and screen data for the map.
 
 
 ## Memory Layout

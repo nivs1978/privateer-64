@@ -3560,9 +3560,9 @@ screen_row_addr_hi:
 
 * = $9000 "MapArt"
 map_art_data:
-        .import source "map_art_bytes.inc"
+        .import binary "map.dat"
 
-// map.art layout: 2-byte load address + 8000 bitmap bytes + 1000 screen bytes + trailing metadata
+// map.dat layout: 2-byte load address + 8000 bitmap bytes + 1000 screen bytes + trailing metadata
 .label map_bitmap_data  = map_art_data + $0002
 .label map_screen_data  = map_art_data + $1f42
 .label map_border_color = map_art_data + $232a
