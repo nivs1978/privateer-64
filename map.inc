@@ -318,7 +318,9 @@ init_map_navigation:
         lda #2
         sta difficulty_level
         lda #0
+        lda #2
         sta encounter_count
+        lda #1
         sta flee_count
         ldx #0
         lda #0
@@ -607,7 +609,6 @@ encounter_choice_2_key:
         jmp encounter_choice_2_key
 
 encounter_board_selected:
-        jsr run_boarding_ship_animation
         jsr run_boarding_fight_text
         lda battle_return_to_main_choice
         bne encounter_board_done
@@ -760,6 +761,7 @@ fog_outcome_crew:
         sta damage_lo
         lda #0
         sta damage_hi
+        pstrnl(fog_found_island_msg)
         pstr(fog_jewel_line_2)
         pnum(damage_lo)
         pstrnl(fog_crew_line_3)
@@ -771,7 +773,6 @@ fog_outcome_crew:
         adc crew_men+1
         sta crew_men+1
 fog_outcome_crew_msg:
-        pstrnl(fog_found_island_msg)
         jsr show_press_any_key
         rts
 
@@ -815,6 +816,8 @@ run_boarding_fight_text:
         sta battle_return_to_main_choice
         jsr clear_text_notice_screen
         jsr draw_fight_status_table
+        jsr show_vic_screen
+        jsr run_boarding_ship_animation
 
 boarding_round:
         jsr apply_boarding_round
@@ -896,6 +899,8 @@ boarding_ship_line_done:
         jsr set_screen_ptr_xy
         astr(boarding_prompt_line_2)
 
+        jsr show_vic_screen
+
 boarding_prompt_key:
         jsr read_key_blocking
         cmp #'K'
@@ -928,7 +933,7 @@ boarding_enemy_low:
         rts
 
 calculate_boarding_player_loss:
-        jsr random_mod_30
+        jsr random_mod_64
         sta battle_random
         lda crew_men
         sta battle_product_lo
@@ -936,9 +941,14 @@ calculate_boarding_player_loss:
         sta battle_product_hi
         ldx difficulty_level
         jsr multiply_battle_product_by_x
-        lda #30
+        lda battle_random
+        sta battle_factor
+        jsr multiply_product_by_factor
+        // BASIC 3140: MAND * ratio * (IDIF * RND / 30).
+        // RND is approximated as a 0..63 fraction, hence divisor 1920.
+        lda #<1920
         sta battle_divisor_lo
-        lda #0
+        lda #>1920
         sta battle_divisor_hi
         jsr divide_battle_product
         jsr scale_battle_loss_by_history
@@ -1465,11 +1475,6 @@ random_mod_40_reduce:
 random_mod_40_done:
         rts
 
-random_mod_30:
-        jsr random_mod_64
-        cmp #30
-        bcs random_mod_30
-        rts
 
 random_mod_50:
         jsr random_mod_64
@@ -1585,7 +1590,7 @@ crew_loss_done:
         rts
 
 show_press_any_key:
-        pstr(press_any_key_msg)
+        pstr(intro_press_key)
         jsr show_vic_screen
 
 show_press_any_key_wait:
@@ -2373,11 +2378,6 @@ update_fight_status_values:
         ldy #21
         fnum(grain_sacks)
 
-        // M[ND
-        ldx #7
-        ldy #23
-        fnum(crew_men)
-
         // SKYTS
         ldx #20
         ldy #23
@@ -2387,6 +2387,11 @@ update_fight_status_values:
         ldx #31
         ldy #23
         fnum(ship_repair_points)
+
+        // M[ND
+        ldx #7
+        ldy #23
+        fnum(crew_men)
         rts
 
 print_fight_byte_stat:
@@ -3223,8 +3228,6 @@ flag_pirate_sprite:
 // the map bitmap ($6000) so it never grows into that screen memory again.
 code_segment_end:
 * = $5140 "HarbourAndMapText"
-press_any_key_msg:      .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
-                        .byte 0
 encounter_lookout_msg:  .text "UDKIGGEN MELDER:"
                         .byte 0
 encounter_ship_ahoy_msg:.text "SHIP OH\J!"
@@ -3455,8 +3458,7 @@ fog_treasure_line_2:    .text "MED EN SKATTEKISTE,"
                         .byte 0
 fog_treasure_line_3:    .text "DER INDEHOLDER"
                         .byte 0
-fog_treasure_line_4:    .text "RIGSDALER!"
-                        .byte 0
+.label fog_treasure_line_4 = end_rigsdaler_msg
 fog_jewel_line_2:       .text "MED"
                         .byte 0
 fog_jewel_line_3:       .text "JUVELER!"

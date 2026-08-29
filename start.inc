@@ -21,19 +21,19 @@ show_start_screen:
         pstrnl(start_author)
 
         ldx #2
-        ldy #2
+        ldy #3
         jsr start_plot
         pstrnl(start_port_author)
 
         ldx #10
-        ldy #4
+        ldy #5
         jsr start_plot
         pstrnl(start_version)
 
         ldx #0
         ldy #24
         jsr start_plot
-        pstr(start_press_key)   // no newline: printing past row 24 would scroll the screen
+        pstr(intro_press_key)   // no newline: printing past row 24 would scroll the screen
 
         // configure_intro_vic_bank blanks the screen; turn it back on once drawn.
         jsr show_vic_screen
@@ -62,7 +62,4 @@ start_port_author:
         .byte 0
 start_version:
         .text "VERSION 1 RELEASE 4"
-        .byte 0
-start_press_key:
-        .text "TRYK P] EN TAST FOR AT FORTS[TTE!"
         .byte 0
